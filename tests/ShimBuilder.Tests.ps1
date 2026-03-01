@@ -151,4 +151,157 @@ Describe 'ShimBuilder' {
 
         Remove-Item -Recurse -Force -Path $root
     }
+
+    It 'marks existing launchers as unchanged when content is identical' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-unchanged-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "envrefresh",
+      "target": "C:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": ["refresh"],
+        "defaults": {
+          "--scope": "path"
+        }
+      }
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+        $secondRun = Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir
+
+        @($secondRun.launchers | Where-Object { $_.action -eq 'unchanged' }).Count | Should Be 2
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'supports locked command tokens with additional positional tail when enabled' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-tail-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "pathadd",
+      "target": "C:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": ["add"],
+        "allowPositionalTail": true
+      }
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+
+        $ps1Path = Join-Path $binDir 'pathadd.ps1'
+        $ps1Content = Get-Content -LiteralPath $ps1Path -Raw
+        $ps1Content.Contains('allowPositionalTail') | Should Be $true
+        $ps1Content.Contains('Positional overrides are not allowed') | Should Be $true
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'removes previously managed launchers that are no longer in manifest during install' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-install-' + [guid]::NewGuid().ToString('N'))
+        $manifestV1 = Join-Path $root 'manifest-v1.json'
+        $manifestV2 = Join-Path $root 'manifest-v2.json'
+        $statePath = Join-Path $root 'state.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "oldshim",
+      "target": "C:\\Windows\\System32\\where.exe",
+      "launcherType": "cmd"
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestV1 -Encoding ASCII
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "newshim",
+      "target": "C:\\Windows\\System32\\where.exe",
+      "launcherType": "cmd"
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestV2 -Encoding ASCII
+
+        Install-PathShims -ManifestPath $manifestV1 -BinDir $binDir -StatePath $statePath | Out-Null
+        $result = Install-PathShims -ManifestPath $manifestV2 -BinDir $binDir -StatePath $statePath
+
+        (Test-Path -LiteralPath (Join-Path $binDir 'oldshim.cmd')) | Should Be $false
+        (Test-Path -LiteralPath (Join-Path $binDir 'newshim.cmd')) | Should Be $true
+        @($result.removedLaunchers | Where-Object { $_.action -eq 'removed' }).Count | Should Be 1
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'allows invocation with no user args' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-noargs-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "envrefresh",
+      "target": "C:\\Windows\\System32\\where.exe",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": ["where"]
+      }
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+
+        $ps1Path = Join-Path $binDir 'envrefresh.ps1'
+        $didThrow = $false
+        try {
+            & $ps1Path | Out-Null
+        }
+        catch {
+            $didThrow = $true
+            $_.Exception.Message.Contains('Cannot bind argument to parameter') | Should Be $false
+        }
+
+        $didThrow | Should Be $false
+
+        Remove-Item -Recurse -Force -Path $root
+    }
 }

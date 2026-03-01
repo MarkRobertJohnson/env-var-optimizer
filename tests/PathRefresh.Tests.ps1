@@ -100,4 +100,5 @@ Describe 'PathRefresh' {
             [Environment]::SetEnvironmentVariable('Path', $original, 'Process')
         }
     }
+
 }

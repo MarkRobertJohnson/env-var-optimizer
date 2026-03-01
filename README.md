@@ -22,6 +22,7 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
 ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]
 ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]
 ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|cmd+ps1]] [--bin-dir <dir>] [--whatif]
+./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]
 ./pathopt.ps1 doctor [--json] [--out <file>]
 ```
 
@@ -105,6 +106,7 @@ The command also detects duplicate paths and skips them automatically.
 ## Shim Manifest
 
 See `examples/shim-manifest.sample.json`.
+For project command shims, use `examples/pathopt-commands.manifest.json`.
 
 ```powershell
 ./pathopt.ps1 shim sync --manifest examples/shim-manifest.sample.json --bin-dir C:\\Tools\\bin
@@ -115,6 +117,38 @@ See `examples/shim-manifest.sample.json`.
 
 When `--manifest` is omitted, the CLI auto-generates one at `.pathopt/manifests/`.
 `--bin-dir` defaults to `C:\\Tools\\bin`.
+
+### Install Project Command Shims (Idempotent)
+
+Install or update all project command shims from the full command manifest:
+
+```powershell
+./pathopt.ps1 shim install
+```
+
+Behavior:
+
+- Creates or updates required launchers in `C:\\Tools\\bin`.
+- Removes previously managed launchers that are no longer in the manifest.
+- Writes installer state to `.pathopt/state/shim-install-state.json` to track managed files safely.
+- Supports `--whatif` for preview-only reconciliation.
+
+Custom manifest and state file:
+
+```powershell
+./pathopt.ps1 shim install --manifest examples/pathopt-commands.manifest.json --state .pathopt/state/shim-install-state.json --bin-dir C:\\Tools\\bin
+```
+
+The built-in full command manifest includes these shim names:
+
+- `pathanalyze`
+- `pathplan`
+- `pathapply`
+- `pathrollback`
+- `pathadd`
+- `envrefresh`
+- `pathdoctor`
+- `shimgen`
 
 ### Shim Defaults and Locked Command Tokens
 
@@ -137,6 +171,7 @@ Shims can embed command defaults with an `args` block:
 Rules:
 
 - `lockedPositional`: positional tokens always prepended to the target invocation. Users cannot pass positional arguments to override them.
+- `allowPositionalTail` (optional): when `true`, allows additional positional arguments after the locked command tokens.
 - `defaults`: long options that are appended only when users did not already pass that option.
 - `lockedOptions` (optional): long options with fixed values; conflicting user values fail fast.
 - `args` policies currently require `launcherType: cmd+ps1`.

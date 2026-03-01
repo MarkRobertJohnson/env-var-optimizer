@@ -12,6 +12,7 @@ function ConvertTo-ShimArgumentPolicy {
         lockedPositional = @()
         defaults         = [ordered]@{}
         lockedOptions    = [ordered]@{}
+        allowPositionalTail = $false
     }
 
     $argsProperty = $Shim.PSObject.Properties['args']
@@ -79,6 +80,11 @@ function ConvertTo-ShimArgumentPolicy {
         }
     }
 
+    $allowPositionalTailProperty = $argsObject.PSObject.Properties['allowPositionalTail']
+    if ($null -ne $allowPositionalTailProperty -and $null -ne $allowPositionalTailProperty.Value) {
+        $policy.allowPositionalTail = [bool]$allowPositionalTailProperty.Value
+    }
+
     return [pscustomobject]$policy
 }
 
@@ -89,7 +95,71 @@ function Test-HasShimArgumentPolicy {
         [psobject]$Policy
     )
 
-    return (@($Policy.lockedPositional).Count -gt 0) -or (@($Policy.defaults.Keys).Count -gt 0) -or (@($Policy.lockedOptions.Keys).Count -gt 0)
+    return (@($Policy.lockedPositional).Count -gt 0) -or (@($Policy.defaults.Keys).Count -gt 0) -or (@($Policy.lockedOptions.Keys).Count -gt 0) -or [bool]$Policy.allowPositionalTail
+}
+
+function Get-FileWriteAction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+        [Parameter(Mandatory)]
+        [string]$Content
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return 'created'
+    }
+
+    $current = [System.IO.File]::ReadAllText($Path)
+    if ($current -ceq $Content) {
+        return 'unchanged'
+    }
+
+    return 'updated'
+}
+
+function Read-ShimInstallState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$StatePath
+    )
+
+    if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) {
+        return $null
+    }
+
+    return (Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json)
+}
+
+function Write-ShimInstallState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$StatePath,
+        [Parameter(Mandatory)]
+        [string]$ManifestPath,
+        [Parameter(Mandatory)]
+        [string]$BinDir,
+        [Parameter(Mandatory)]
+        [string[]]$ManagedLaunchers
+    )
+
+    $stateDir = Split-Path -Parent $StatePath
+    if (-not [string]::IsNullOrWhiteSpace($stateDir)) {
+        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+    }
+
+    $state = [pscustomobject]@{
+        version          = 1
+        updatedAt        = (Get-Date).ToUniversalTime().ToString('o')
+        manifestPath     = $ManifestPath
+        binDir           = $BinDir
+        managedLaunchers = @($ManagedLaunchers)
+    }
+
+    $state | ConvertTo-Json -Depth 8 | Set-Content -Path $StatePath -Encoding UTF8
 }
 
 function Read-ShimManifest {
@@ -185,6 +255,7 @@ function Get-Ps1LauncherContent {
         lockedPositional = @($ArgumentPolicy.lockedPositional)
         defaults         = [pscustomobject]$ArgumentPolicy.defaults
         lockedOptions    = [pscustomobject]$ArgumentPolicy.lockedOptions
+        allowPositionalTail = [bool]$ArgumentPolicy.allowPositionalTail
     } | ConvertTo-Json -Compress -Depth 8
     $escapedPolicyJson = $policyJson.Replace("'", "''")
 
@@ -198,7 +269,6 @@ Set-StrictMode -Version Latest
 function Get-UserOptionMap {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
         [string[]]`$Args
     )
 
@@ -231,7 +301,7 @@ function Get-UserOptionMap {
     return `$map
 }
 
-if (@(`$policy.lockedPositional).Count -gt 0) {
+if (@(`$policy.lockedPositional).Count -gt 0 -and -not [bool]`$policy.allowPositionalTail) {
     `$lockedTokenList = @(`$policy.lockedPositional) -join ', '
     foreach (`$token in `$userArgs) {
         if (-not ([string]`$token).StartsWith('-')) {
@@ -353,13 +423,10 @@ function Sync-PathShims {
         $ps1Path = if ($launcherType -eq 'cmd+ps1') { Join-Path $BinDir ($name + '.ps1') } else { $null }
         $cmdContent = Get-CmdLauncherContent -Target $target -Ps1LauncherPath $ps1Path
 
-        $cmdAction = 'updated'
-        if (-not (Test-Path -LiteralPath $cmdPath -PathType Leaf)) {
-            $cmdAction = 'created'
-        }
+        $cmdAction = Get-FileWriteAction -Path $cmdPath -Content $cmdContent
 
-        if (-not $WhatIf) {
-            $cmdContent | Set-Content -Path $cmdPath -Encoding ASCII
+        if (-not $WhatIf -and $cmdAction -ne 'unchanged') {
+            $cmdContent | Set-Content -Path $cmdPath -Encoding ASCII -NoNewline
         }
 
         $results += [pscustomobject]@{
@@ -372,13 +439,10 @@ function Sync-PathShims {
 
         if ($launcherType -eq 'cmd+ps1') {
             $ps1Content = Get-Ps1LauncherContent -Target $target -ArgumentPolicy $argumentPolicy
-            $ps1Action = 'updated'
-            if (-not (Test-Path -LiteralPath $ps1Path -PathType Leaf)) {
-                $ps1Action = 'created'
-            }
+            $ps1Action = Get-FileWriteAction -Path $ps1Path -Content $ps1Content
 
-            if (-not $WhatIf) {
-                $ps1Content | Set-Content -Path $ps1Path -Encoding ASCII
+            if (-not $WhatIf -and $ps1Action -ne 'unchanged') {
+                $ps1Content | Set-Content -Path $ps1Path -Encoding ASCII -NoNewline
             }
 
             $results += [pscustomobject]@{
@@ -405,4 +469,65 @@ function Sync-PathShims {
     }
 }
 
-Export-ModuleMember -Function Sync-PathShims, Read-ShimManifest
+function Install-PathShims {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ManifestPath,
+        [string]$BinDir = 'C:\\Tools\\bin',
+        [string]$StatePath,
+        [switch]$WhatIf
+    )
+
+    $syncResult = Sync-PathShims -ManifestPath $ManifestPath -BinDir $BinDir -WhatIf:$WhatIf
+
+    $effectiveStatePath = $StatePath
+    if ([string]::IsNullOrWhiteSpace($effectiveStatePath)) {
+        $effectiveStatePath = Join-Path (Get-Location) '.pathopt\\state\\shim-install-state.json'
+    }
+
+    $previousState = Read-ShimInstallState -StatePath $effectiveStatePath
+    $previousManagedLaunchers = @()
+    if ($null -ne $previousState -and $null -ne $previousState.managedLaunchers) {
+        $previousManagedLaunchers = @($previousState.managedLaunchers)
+    }
+
+    $desiredLaunchers = @($syncResult.launchers | Select-Object -ExpandProperty launcher)
+    $desiredLaunchersMap = @{}
+    foreach ($launcher in $desiredLaunchers) {
+        $desiredLaunchersMap[[string]$launcher] = $true
+    }
+
+    $removedLaunchers = @()
+    foreach ($launcherPath in $previousManagedLaunchers) {
+        if ($desiredLaunchersMap.ContainsKey([string]$launcherPath)) {
+            continue
+        }
+
+        $action = if (Test-Path -LiteralPath $launcherPath -PathType Leaf) { 'removed' } else { 'already-missing' }
+        if (-not $WhatIf -and $action -eq 'removed') {
+            Remove-Item -LiteralPath $launcherPath -Force
+        }
+
+        $removedLaunchers += [pscustomobject]@{
+            launcher = [string]$launcherPath
+            action   = $action
+        }
+    }
+
+    if (-not $WhatIf) {
+        Write-ShimInstallState -StatePath $effectiveStatePath -ManifestPath $syncResult.manifestPath -BinDir $syncResult.binDir -ManagedLaunchers $desiredLaunchers
+    }
+
+    return [pscustomobject]@{
+        syncedAt        = $syncResult.syncedAt
+        manifestPath    = $syncResult.manifestPath
+        binDir          = $syncResult.binDir
+        shimCount       = $syncResult.shimCount
+        launchers       = $syncResult.launchers
+        removedLaunchers = $removedLaunchers
+        statePath       = $effectiveStatePath
+    }
+}
+
+Export-ModuleMember -Function Sync-PathShims, Read-ShimManifest, Install-PathShims

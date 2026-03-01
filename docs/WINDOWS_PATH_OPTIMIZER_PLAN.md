@@ -27,7 +27,8 @@ Chosen defaults (locked):
 3. `pathopt apply --plan <file> [--backup-dir <dir>] [--whatif]`
 4. `pathopt rollback --snapshot <file>`
 5. `pathopt shim sync [--manifest <file>] [--bin-dir <dir>]`
-6. `pathopt doctor` (checks PATH health + stale account + command collisions)
+6. `pathopt shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]`
+7. `pathopt doctor` (checks PATH health + stale account + command collisions)
 
 ### Plan/manifest schema (JSON)
 1. `version`

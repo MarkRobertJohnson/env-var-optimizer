@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "pathanalyze",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "analyze"
+        ]
+      }
+    },
+    {
+      "name": "pathplan",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "pathapply",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "apply"
+        ]
+      }
+    },
+    {
+      "name": "pathrollback",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "rollback"
+        ]
+      }
+    },
+    {
+      "name": "pathadd",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "add"
+        ],
+        "allowPositionalTail": true
+      }
+    },
+    {
+      "name": "envrefresh",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "refresh"
+        ],
+        "defaults": {
+          "--scope": "path"
+        }
+      }
+    },
+    {
+      "name": "pathdoctor",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "doctor"
+        ]
+      }
+    },
+    {
+      "name": "shimgen",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "shim",
+          "sync"
+        ]
+      }
+    }
+  ]
+}

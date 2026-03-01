@@ -113,14 +113,14 @@ function Invoke-PathRefresh {
         $currentProcessPath = ''
     }
 
-    if ($PSBoundParameters.ContainsKey('UserPathValue')) {
+    if ($PSBoundParameters.ContainsKey('UserPathValue') -and $null -ne $UserPathValue) {
         $userPath = $UserPathValue
     }
     else {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     }
 
-    if ($PSBoundParameters.ContainsKey('MachinePathValue')) {
+    if ($PSBoundParameters.ContainsKey('MachinePathValue') -and $null -ne $MachinePathValue) {
         $machinePath = $MachinePathValue
     }
     else {
@@ -206,12 +206,20 @@ function Invoke-EnvironmentRefresh {
     $skippedCount = 0
 
     if ($scopeValue.Equals('path', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $pathResult = Invoke-PathRefresh -WhatIf:$WhatIf -UserPathValue $UserPathValue -MachinePathValue $MachinePathValue
+        $pathArgs = @{ WhatIf = [bool]$WhatIf }
+        if ($PSBoundParameters.ContainsKey('UserPathValue')) { $pathArgs['UserPathValue'] = $UserPathValue }
+        if ($PSBoundParameters.ContainsKey('MachinePathValue')) { $pathArgs['MachinePathValue'] = $MachinePathValue }
+
+        $pathResult = Invoke-PathRefresh @pathArgs
         $operations += $pathResult
         if ($pathResult.changed) { $changedCount++ }
     }
     elseif ($scopeValue.Equals('all', [System.StringComparison]::OrdinalIgnoreCase)) {
-        $pathResult = Invoke-PathRefresh -WhatIf:$WhatIf -UserPathValue $UserPathValue -MachinePathValue $MachinePathValue
+        $pathArgs = @{ WhatIf = [bool]$WhatIf }
+        if ($PSBoundParameters.ContainsKey('UserPathValue')) { $pathArgs['UserPathValue'] = $UserPathValue }
+        if ($PSBoundParameters.ContainsKey('MachinePathValue')) { $pathArgs['MachinePathValue'] = $MachinePathValue }
+
+        $pathResult = Invoke-PathRefresh @pathArgs
         $operations += $pathResult
         if ($pathResult.changed) { $changedCount++ }
 
@@ -258,7 +266,11 @@ function Invoke-EnvironmentRefresh {
     }
     else {
         if ($scopeValue.Equals('path', [System.StringComparison]::OrdinalIgnoreCase)) {
-            $pathResult = Invoke-PathRefresh -WhatIf:$WhatIf -UserPathValue $UserPathValue -MachinePathValue $MachinePathValue
+            $pathArgs = @{ WhatIf = [bool]$WhatIf }
+            if ($PSBoundParameters.ContainsKey('UserPathValue')) { $pathArgs['UserPathValue'] = $UserPathValue }
+            if ($PSBoundParameters.ContainsKey('MachinePathValue')) { $pathArgs['MachinePathValue'] = $MachinePathValue }
+
+            $pathResult = Invoke-PathRefresh @pathArgs
             $operations += $pathResult
             if ($pathResult.changed) { $changedCount++ }
         }

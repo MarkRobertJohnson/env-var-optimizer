@@ -24,6 +24,7 @@ function Show-PathOptHelp {
         '  ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]',
         '  ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]',
         '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
+        '  ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 doctor [--json] [--out <file>]'
     )
 
@@ -207,12 +208,43 @@ function Invoke-ShimCommand {
     param([string[]]$Args)
 
     if ($Args.Count -eq 0) {
-        throw 'shim requires a subcommand (sync).'
+        throw 'shim requires a subcommand (sync|install).'
     }
 
     $subCommand = $Args[0].ToLowerInvariant()
-    if ($subCommand -ne 'sync') {
+    if ($subCommand -notin @('sync', 'install')) {
         throw "Unsupported shim subcommand: $subCommand"
+    }
+
+    if ($subCommand -eq 'install') {
+        $manifestPath = $null
+        $statePath = $null
+        $binDir = 'C:\\Tools\\bin'
+        $whatIf = $false
+
+        for ($i = 1; $i -lt $Args.Count; $i++) {
+            switch ($Args[$i]) {
+                '--manifest' { $manifestPath = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--manifest' }
+                '--state' { $statePath = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--state' }
+                '--bin-dir' { $binDir = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--bin-dir' }
+                '--whatif' { $whatIf = $true }
+                default { throw "Unknown shim install option: $($Args[$i])" }
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($manifestPath)) {
+            $manifestPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'examples\pathopt-commands.manifest.json'
+        }
+
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+            throw "Installer manifest not found: $manifestPath"
+        }
+
+        if ([string]::IsNullOrWhiteSpace($statePath)) {
+            $statePath = Join-Path (Get-Location) '.pathopt\state\shim-install-state.json'
+        }
+
+        return Install-PathShims -ManifestPath $manifestPath -StatePath $statePath -BinDir $binDir -WhatIf:$whatIf
     }
 
     $manifestPath = $null
