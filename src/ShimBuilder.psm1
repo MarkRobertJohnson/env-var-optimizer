@@ -1,6 +1,97 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function ConvertTo-ShimArgumentPolicy {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$Shim
+    )
+
+    $policy = [ordered]@{
+        lockedPositional = @()
+        defaults         = [ordered]@{}
+        lockedOptions    = [ordered]@{}
+    }
+
+    $argsProperty = $Shim.PSObject.Properties['args']
+    if ($null -eq $argsProperty -or $null -eq $argsProperty.Value) {
+        return [pscustomobject]$policy
+    }
+
+    $argsObject = $argsProperty.Value
+
+    $lockedPositionalProperty = $argsObject.PSObject.Properties['lockedPositional']
+    if ($null -ne $lockedPositionalProperty -and $null -ne $lockedPositionalProperty.Value) {
+        foreach ($token in @($lockedPositionalProperty.Value)) {
+            $tokenText = [string]$token
+            if ([string]::IsNullOrWhiteSpace($tokenText)) {
+                throw "Shim '$($Shim.name)' has an empty args.lockedPositional value."
+            }
+
+            if ($tokenText.StartsWith('-')) {
+                throw "Shim '$($Shim.name)' has invalid args.lockedPositional token '$tokenText'. Use positional tokens only."
+            }
+
+            $policy.lockedPositional += $tokenText
+        }
+    }
+
+    $defaultProperty = $argsObject.PSObject.Properties['defaults']
+    if ($null -ne $defaultProperty -and $null -ne $defaultProperty.Value) {
+        foreach ($entry in $defaultProperty.Value.PSObject.Properties) {
+            $optionName = [string]$entry.Name
+            if ([string]::IsNullOrWhiteSpace($optionName) -or -not $optionName.StartsWith('--')) {
+                throw "Shim '$($Shim.name)' has invalid args.defaults option '$optionName'. Long options must start with '--'."
+            }
+
+            $defaultValue = $entry.Value
+            $isSwitchDefault = $defaultValue -is [bool]
+            if (-not $isSwitchDefault -and [string]::IsNullOrWhiteSpace([string]$defaultValue)) {
+                throw "Shim '$($Shim.name)' has empty default value for option '$optionName'."
+            }
+
+            $policy.defaults[$optionName] = $defaultValue
+        }
+    }
+
+    $lockedOptionsProperty = $argsObject.PSObject.Properties['lockedOptions']
+    if ($null -ne $lockedOptionsProperty -and $null -ne $lockedOptionsProperty.Value) {
+        foreach ($entry in $lockedOptionsProperty.Value.PSObject.Properties) {
+            $optionName = [string]$entry.Name
+            if ([string]::IsNullOrWhiteSpace($optionName) -or -not $optionName.StartsWith('--')) {
+                throw "Shim '$($Shim.name)' has invalid args.lockedOptions option '$optionName'. Long options must start with '--'."
+            }
+
+            $lockedValue = $entry.Value
+            $isSwitchDefault = $lockedValue -is [bool]
+            if (-not $isSwitchDefault -and [string]::IsNullOrWhiteSpace([string]$lockedValue)) {
+                throw "Shim '$($Shim.name)' has empty locked value for option '$optionName'."
+            }
+
+            $policy.lockedOptions[$optionName] = $lockedValue
+        }
+    }
+
+    foreach ($optionName in @($policy.defaults.Keys)) {
+        if ($policy.lockedOptions.Contains($optionName)) {
+            throw "Shim '$($Shim.name)' defines '$optionName' in both args.defaults and args.lockedOptions."
+        }
+    }
+
+    return [pscustomobject]$policy
+}
+
+function Test-HasShimArgumentPolicy {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$Policy
+    )
+
+    return (@($Policy.lockedPositional).Count -gt 0) -or (@($Policy.defaults.Keys).Count -gt 0) -or (@($Policy.lockedOptions.Keys).Count -gt 0)
+}
+
 function Read-ShimManifest {
     [CmdletBinding()]
     param(
@@ -66,8 +157,13 @@ function Get-CmdLauncherContent {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Target
+        [string]$Target,
+        [string]$Ps1LauncherPath
     )
+
+    if (-not [string]::IsNullOrWhiteSpace($Ps1LauncherPath)) {
+        return "@echo off`r`npwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$Ps1LauncherPath`" %*`r`n"
+    }
 
     if ($Target.EndsWith('.ps1', [System.StringComparison]::OrdinalIgnoreCase)) {
         return "@echo off`r`npwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$Target`" %*`r`n"
@@ -80,10 +176,141 @@ function Get-Ps1LauncherContent {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Target
+        [string]$Target,
+        [Parameter(Mandatory)]
+        [psobject]$ArgumentPolicy
     )
 
-    return "& `"$Target`" @args`r`n"
+    $policyJson = [pscustomobject]@{
+        lockedPositional = @($ArgumentPolicy.lockedPositional)
+        defaults         = [pscustomobject]$ArgumentPolicy.defaults
+        lockedOptions    = [pscustomobject]$ArgumentPolicy.lockedOptions
+    } | ConvertTo-Json -Compress -Depth 8
+    $escapedPolicyJson = $policyJson.Replace("'", "''")
+
+    return @"
+`$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+`$policy = '$escapedPolicyJson' | ConvertFrom-Json
+`$userArgs = @(`$args)
+
+function Get-UserOptionMap {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string[]]`$Args
+    )
+
+    `$map = @{}
+
+    for (`$i = 0; `$i -lt `$Args.Count; `$i++) {
+        `$token = [string]`$Args[`$i]
+        if (-not `$token.StartsWith('--')) {
+            continue
+        }
+
+        `$lowerToken = `$token.ToLowerInvariant()
+        if (`$token.Contains('=')) {
+            `$eqIndex = `$token.IndexOf('=')
+            `$optionName = `$token.Substring(0, `$eqIndex)
+            `$optionValue = `$token.Substring(`$eqIndex + 1)
+            `$map[`$optionName.ToLowerInvariant()] = `$optionValue
+            continue
+        }
+
+        if ((`$i + 1) -lt `$Args.Count -and -not ([string]`$Args[`$i + 1]).StartsWith('-')) {
+            `$map[`$lowerToken] = [string]`$Args[`$i + 1]
+            `$i++
+            continue
+        }
+
+        `$map[`$lowerToken] = `$true
+    }
+
+    return `$map
+}
+
+if (@(`$policy.lockedPositional).Count -gt 0) {
+    `$lockedTokenList = @(`$policy.lockedPositional) -join ', '
+    foreach (`$token in `$userArgs) {
+        if (-not ([string]`$token).StartsWith('-')) {
+            throw "This shim locks positional command tokens (`$lockedTokenList). Positional overrides are not allowed."
+        }
+    }
+}
+
+`$userOptionMap = Get-UserOptionMap -Args `$userArgs
+`$lockedOptionPairs = @()
+
+if (`$null -ne `$policy.lockedOptions) {
+    foreach (`$property in @(`$policy.lockedOptions.PSObject.Properties)) {
+        `$optionName = [string]`$property.Name
+        `$optionLower = `$optionName.ToLowerInvariant()
+        `$lockedValue = `$property.Value
+
+        if (`$userOptionMap.ContainsKey(`$optionLower)) {
+            `$userValue = `$userOptionMap[`$optionLower]
+            `$isDifferent = `$false
+
+            if (`$lockedValue -is [bool] -and `$userValue -is [bool]) {
+                `$isDifferent = (`$lockedValue -ne `$userValue)
+            }
+            else {
+                `$isDifferent = (-not ([string]`$lockedValue).Equals([string]`$userValue, [System.StringComparison]::OrdinalIgnoreCase))
+            }
+
+            if (`$isDifferent) {
+                throw "Option `$optionName is locked by this shim and cannot be overridden."
+            }
+        }
+        else {
+            `$lockedOptionPairs += `$optionName
+            if (-not (`$lockedValue -is [bool])) {
+                `$lockedOptionPairs += [string]`$lockedValue
+            }
+        }
+    }
+}
+
+`$defaultPairs = @()
+if (`$null -ne `$policy.defaults) {
+    foreach (`$property in @(`$policy.defaults.PSObject.Properties)) {
+        `$optionName = [string]`$property.Name
+        `$optionLower = `$optionName.ToLowerInvariant()
+
+        if (`$userOptionMap.ContainsKey(`$optionLower)) {
+            continue
+        }
+
+        `$defaultValue = `$property.Value
+        if (`$defaultValue -is [bool]) {
+            if (`$defaultValue) {
+                `$defaultPairs += `$optionName
+            }
+
+            continue
+        }
+
+        `$defaultPairs += `$optionName
+        `$defaultPairs += [string]`$defaultValue
+    }
+}
+
+`$finalArgs = @()
+`$finalArgs += @(`$policy.lockedPositional)
+`$finalArgs += `$lockedOptionPairs
+`$finalArgs += `$userArgs
+`$finalArgs += `$defaultPairs
+
+& "$Target" @finalArgs
+`$lastExitCodeVariable = Get-Variable -Name LASTEXITCODE -ErrorAction SilentlyContinue
+if (`$null -ne `$lastExitCodeVariable) {
+    exit [int]`$lastExitCodeVariable.Value
+}
+
+exit 0
+"@
 }
 
 function Sync-PathShims {
@@ -107,6 +334,8 @@ function Sync-PathShims {
         $name = [string]$shim.name
         $target = [string]$shim.target
         $launcherType = if ([string]::IsNullOrWhiteSpace([string]$shim.launcherType)) { 'cmd' } else { [string]$shim.launcherType }
+        $argumentPolicy = ConvertTo-ShimArgumentPolicy -Shim $shim
+        $hasArgumentPolicy = Test-HasShimArgumentPolicy -Policy $argumentPolicy
 
         if ([string]::IsNullOrWhiteSpace($name)) {
             throw 'Shim name cannot be empty.'
@@ -116,8 +345,13 @@ function Sync-PathShims {
             throw "Shim '$name' is missing target."
         }
 
+        if ($hasArgumentPolicy -and $launcherType -ne 'cmd+ps1') {
+            throw "Shim '$name' uses args policy and must set launcherType to 'cmd+ps1'."
+        }
+
         $cmdPath = Join-Path $BinDir ($name + '.cmd')
-        $cmdContent = Get-CmdLauncherContent -Target $target
+        $ps1Path = if ($launcherType -eq 'cmd+ps1') { Join-Path $BinDir ($name + '.ps1') } else { $null }
+        $cmdContent = Get-CmdLauncherContent -Target $target -Ps1LauncherPath $ps1Path
 
         $cmdAction = 'updated'
         if (-not (Test-Path -LiteralPath $cmdPath -PathType Leaf)) {
@@ -137,8 +371,7 @@ function Sync-PathShims {
         }
 
         if ($launcherType -eq 'cmd+ps1') {
-            $ps1Path = Join-Path $BinDir ($name + '.ps1')
-            $ps1Content = Get-Ps1LauncherContent -Target $target
+            $ps1Content = Get-Ps1LauncherContent -Target $target -ArgumentPolicy $argumentPolicy
             $ps1Action = 'updated'
             if (-not (Test-Path -LiteralPath $ps1Path -PathType Leaf)) {
                 $ps1Action = 'created'

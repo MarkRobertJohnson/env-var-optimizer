@@ -116,6 +116,38 @@ See `examples/shim-manifest.sample.json`.
 When `--manifest` is omitted, the CLI auto-generates one at `.pathopt/manifests/`.
 `--bin-dir` defaults to `C:\\Tools\\bin`.
 
+### Shim Defaults and Locked Command Tokens
+
+Shims can embed command defaults with an `args` block:
+
+```json
+{
+  "name": "envrefresh",
+  "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+  "launcherType": "cmd+ps1",
+  "args": {
+    "lockedPositional": ["refresh"],
+    "defaults": {
+      "--scope": "path"
+    }
+  }
+}
+```
+
+Rules:
+
+- `lockedPositional`: positional tokens always prepended to the target invocation. Users cannot pass positional arguments to override them.
+- `defaults`: long options that are appended only when users did not already pass that option.
+- `lockedOptions` (optional): long options with fixed values; conflicting user values fail fast.
+- `args` policies currently require `launcherType: cmd+ps1`.
+
+Example behavior for `envrefresh`:
+
+- `envrefresh` -> runs `pathopt.ps1 refresh --scope path`
+- `envrefresh --whatif` -> runs `pathopt.ps1 refresh --whatif --scope path`
+- `envrefresh --scope all` -> runs `pathopt.ps1 refresh --scope all` (default is overridable)
+- `envrefresh plan` -> fails because `refresh` is locked and positional overrides are blocked
+
 ## Tests
 
 ```powershell

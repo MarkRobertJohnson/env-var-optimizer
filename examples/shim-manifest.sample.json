@@ -18,6 +18,19 @@
       "name": "mytool",
       "target": "C:\\Tools\\mytool\\run.ps1",
       "launcherType": "cmd+ps1"
+    },
+    {
+      "name": "envrefresh",
+      "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "cmd+ps1",
+      "args": {
+        "lockedPositional": [
+          "refresh"
+        ],
+        "defaults": {
+          "--scope": "path"
+        }
+      }
     }
   ]
 }
