@@ -20,8 +20,27 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
 ./pathopt.ps1 apply --plan <file> [--backup-dir <dir>] [--whatif]
 ./pathopt.ps1 rollback --snapshot <file> [--whatif]
 ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]
+./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]
 ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|cmd+ps1]] [--bin-dir <dir>] [--whatif]
 ./pathopt.ps1 doctor [--json] [--out <file>]
+```
+
+## Refresh Current Process Environment
+
+Use `refresh` to update the current PowerShell process from the latest User and Machine environment values without restarting the terminal.
+
+```powershell
+# Refresh process PATH from Machine + User PATH values
+./pathopt.ps1 refresh
+
+# Refresh all process variables from User/Machine values
+./pathopt.ps1 refresh --scope all
+
+# Refresh one variable (User wins over Machine on conflicts)
+./pathopt.ps1 refresh --scope JAVA_HOME
+
+# Preview only
+./pathopt.ps1 refresh --scope all --whatif
 ```
 
 ## Adding Paths
@@ -108,3 +127,4 @@ Invoke-Pester -Path ./tests
 - Writes use .NET environment APIs, not `setx`.
 - Machine PATH updates require elevation.
 - Open new shells after apply or rollback.
+- `refresh` updates the current process only; it does not write registry values.

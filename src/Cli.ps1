@@ -6,6 +6,7 @@ Import-Module (Join-Path $PSScriptRoot 'PathSource.psm1') -Force -DisableNameChe
 Import-Module (Join-Path $PSScriptRoot 'PathClassify.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'PathPlan.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'PathApply.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'PathRefresh.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'ShimBuilder.psm1') -Force -DisableNameChecking
 
 function Show-PathOptHelp {
@@ -21,6 +22,7 @@ function Show-PathOptHelp {
         '  ./pathopt.ps1 apply --plan <file> [--backup-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 rollback --snapshot <file> [--whatif]',
         '  ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]',
+        '  ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]',
         '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 doctor [--json] [--out <file>]'
     )
@@ -382,6 +384,24 @@ function Invoke-AddCommand {
     return $result
 }
 
+function Invoke-RefreshCommand {
+    [CmdletBinding()]
+    param([string[]]$Args)
+
+    $scope = 'path'
+    $whatIf = $false
+
+    for ($i = 0; $i -lt $Args.Count; $i++) {
+        switch ($Args[$i]) {
+            '--scope' { $scope = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--scope' }
+            '--whatif' { $whatIf = $true }
+            default { throw "Unknown refresh option: $($Args[$i])" }
+        }
+    }
+
+    return Invoke-EnvironmentRefresh -Scope $scope -WhatIf:$whatIf
+}
+
 function Invoke-PathOptCli {
     [CmdletBinding()]
     param(
@@ -406,6 +426,7 @@ function Invoke-PathOptCli {
         'apply' { Invoke-ApplyCommand -Args $rest; break }
         'rollback' { Invoke-RollbackCommand -Args $rest; break }
         'add' { Invoke-AddCommand -Args $rest; break }
+        'refresh' { Invoke-RefreshCommand -Args $rest; break }
         'shim' { Invoke-ShimCommand -Args $rest; break }
         'doctor' { Invoke-DoctorCommand -Args $rest; break }
         'help' { Show-PathOptHelp; break }
