@@ -56,6 +56,83 @@ function Get-EffectiveEnvironmentValue {
     }
 }
 
+function Get-RefreshExecutionContext {
+    [CmdletBinding()]
+    param()
+
+    $currentProcessId = $PID
+    $currentProcessName = $null
+    $parentProcessId = $null
+    $parentProcessName = $null
+
+    try {
+        $currentProcessName = (Get-Process -Id $currentProcessId -ErrorAction Stop).ProcessName
+    }
+    catch {
+        $currentProcessName = $null
+    }
+
+    try {
+        $processRow = Get-CimInstance Win32_Process -Filter "ProcessId = $currentProcessId" -ErrorAction Stop
+        if ($null -ne $processRow) {
+            $parentProcessId = [int]$processRow.ParentProcessId
+        }
+
+        if ($null -ne $parentProcessId -and $parentProcessId -gt 0) {
+            $parentProcessName = (Get-Process -Id $parentProcessId -ErrorAction Stop).ProcessName
+        }
+    }
+    catch {
+        $parentProcessId = $null
+        $parentProcessName = $null
+    }
+
+    return [pscustomobject]@{
+        currentProcessId   = $currentProcessId
+        currentProcessName = $currentProcessName
+        parentProcessId    = $parentProcessId
+        parentProcessName  = $parentProcessName
+    }
+}
+
+function Get-RefreshExecutionWarnings {
+    [CmdletBinding()]
+    param(
+        [psobject]$ExecutionContext
+    )
+
+    if ($null -eq $ExecutionContext) {
+        $ExecutionContext = Get-RefreshExecutionContext
+    }
+
+    $pathOptScriptPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'pathopt.ps1'
+    if (Test-Path -LiteralPath $pathOptScriptPath -PathType Leaf) {
+        $pathOptScriptPath = (Resolve-Path -LiteralPath $pathOptScriptPath).Path
+    }
+
+    $warnings = @()
+    $shellNames = @('pwsh', 'powershell', 'cmd')
+    $parentName = if ($null -eq $ExecutionContext.parentProcessName) { '' } else { [string]$ExecutionContext.parentProcessName }
+    $parentLower = $parentName.ToLowerInvariant()
+
+    if ($shellNames -contains $parentLower) {
+        $currentName = if ([string]::IsNullOrWhiteSpace([string]$ExecutionContext.currentProcessName)) { 'unknown' } else { [string]$ExecutionContext.currentProcessName }
+        $parentNameDisplay = if ([string]::IsNullOrWhiteSpace([string]$ExecutionContext.parentProcessName)) { 'unknown' } else { [string]$ExecutionContext.parentProcessName }
+        $parentId = if ($null -eq $ExecutionContext.parentProcessId) { 'unknown' } else { [string]$ExecutionContext.parentProcessId }
+
+        $warnings += [pscustomobject]@{
+            code             = 'child_shell_process'
+            message          = "refresh is running in child process $($ExecutionContext.currentProcessId) ($currentName). It should be executed from the interactive parent process $parentId ($parentNameDisplay). Direct command: & '$pathOptScriptPath' refresh --scope path"
+            currentProcessId = $ExecutionContext.currentProcessId
+            parentProcessId  = $ExecutionContext.parentProcessId
+            parentProcess    = $ExecutionContext.parentProcessName
+            commandPath      = $pathOptScriptPath
+        }
+    }
+
+    return $warnings
+}
+
 function Merge-PathFromScopes {
     [CmdletBinding()]
     param(
@@ -179,6 +256,7 @@ function Invoke-EnvironmentRefresh {
         [switch]$WhatIf,
         [hashtable]$UserVariables,
         [hashtable]$MachineVariables,
+        [psobject]$RefreshExecutionContext,
         [AllowEmptyString()]
         [string]$UserPathValue,
         [AllowEmptyString()]
@@ -204,6 +282,18 @@ function Invoke-EnvironmentRefresh {
     $operations = @()
     $changedCount = 0
     $skippedCount = 0
+    if ($PSBoundParameters.ContainsKey('RefreshExecutionContext') -and $null -ne $RefreshExecutionContext) {
+        $executionContext = $RefreshExecutionContext
+    }
+    else {
+        $executionContext = Get-RefreshExecutionContext
+    }
+    $warnings = @(Get-RefreshExecutionWarnings -ExecutionContext $executionContext)
+
+    if (@($warnings).Count -gt 0) {
+        $messages = @($warnings | ForEach-Object { [string]$_.message })
+        throw ($messages -join ' ')
+    }
 
     if ($scopeValue.Equals('path', [System.StringComparison]::OrdinalIgnoreCase)) {
         $pathArgs = @{ WhatIf = [bool]$WhatIf }
@@ -314,6 +404,9 @@ function Invoke-EnvironmentRefresh {
         whatIf        = [bool]$WhatIf
         changedCount  = $changedCount
         skippedCount  = $skippedCount
+        warningCount  = @($warnings).Count
+        warnings      = $warnings
+        executionContext = $executionContext
         operationCount = $operations.Count
         operations    = $operations
         message       = if ($WhatIf) {
@@ -324,4 +417,4 @@ function Invoke-EnvironmentRefresh {
     }
 }
 
-Export-ModuleMember -Function Get-ScopeEnvironmentMap, Get-EffectiveEnvironmentValue, Merge-PathFromScopes, Invoke-PathRefresh, Invoke-EnvironmentRefresh
+Export-ModuleMember -Function Get-ScopeEnvironmentMap, Get-EffectiveEnvironmentValue, Get-RefreshExecutionContext, Get-RefreshExecutionWarnings, Merge-PathFromScopes, Invoke-PathRefresh, Invoke-EnvironmentRefresh

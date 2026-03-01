@@ -114,4 +114,53 @@ Describe 'PathRefresh' {
             [Environment]::SetEnvironmentVariable('Path', $original, 'Process')
         }
     }
+
+    It 'returns warning payload when refresh appears to run in child shell process' {
+        $warnings = @(Get-RefreshExecutionWarnings -ExecutionContext ([pscustomobject]@{
+            currentProcessId   = 1234
+            currentProcessName = 'pwsh'
+            parentProcessId    = 2222
+            parentProcessName  = 'cmd'
+        }))
+
+        $warnings.Count | Should Be 1
+        $warnings[0].code | Should Be 'child_shell_process'
+        $warnings[0].message.Contains('child process 1234 (pwsh)') | Should Be $true
+        $warnings[0].message.Contains('interactive parent process 2222 (cmd)') | Should Be $true
+        $warnings[0].message.Contains('pathopt.ps1') | Should Be $true
+        $warnings[0].commandPath.EndsWith('pathopt.ps1') | Should Be $true
+    }
+
+    It 'throws when execution context indicates child shell process' {
+        $context = [pscustomobject]@{
+            currentProcessId   = 1234
+            currentProcessName = 'pwsh'
+            parentProcessId    = 2222
+            parentProcessName  = 'cmd'
+        }
+
+        $didThrow = $false
+        try {
+            Invoke-EnvironmentRefresh -Scope 'path' -WhatIf -RefreshExecutionContext $context -UserPathValue 'D:\\U' -MachinePathValue 'C:\\M' | Out-Null
+        }
+        catch {
+            $didThrow = $true
+            $_.Exception.Message.Contains('child process 1234 (pwsh)') | Should Be $true
+            $_.Exception.Message.Contains('interactive parent process 2222 (cmd)') | Should Be $true
+            $_.Exception.Message.Contains('pathopt.ps1') | Should Be $true
+        }
+
+        $didThrow | Should Be $true
+    }
+
+    It 'does not warn when parent is non-shell process' {
+        $warnings = @(Get-RefreshExecutionWarnings -ExecutionContext ([pscustomobject]@{
+            currentProcessId   = 1234
+            currentProcessName = 'pwsh'
+            parentProcessId    = 4444
+            parentProcessName  = 'Code'
+        }))
+
+        $warnings.Count | Should Be 0
+    }
 }

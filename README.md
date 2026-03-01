@@ -30,6 +30,8 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
 
 Use `refresh` to update the current PowerShell process from the latest User and Machine environment values without restarting the terminal.
 
+`refresh` also checks execution context and fails fast when it appears to run in a child shell process (for example via `.cmd` wrapper), since those changes do not flow back to the parent interactive shell.
+
 ```powershell
 # Refresh process PATH from Machine + User PATH values
 ./pathopt.ps1 refresh
