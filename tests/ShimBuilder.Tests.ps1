@@ -144,10 +144,46 @@ Describe 'ShimBuilder' {
         }
         catch {
             $didThrow = $true
-            $_.Exception.Message.Contains("must set launcherType to 'cmd+ps1'") | Should Be $true
+          $_.Exception.Message.Contains("must set launcherType to 'ps1' or 'cmd+ps1'") | Should Be $true
         }
 
         $didThrow | Should Be $true
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'supports args policy with ps1 launcher only' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-args-ps1-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "envrefresh",
+      "target": "C:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "ps1",
+      "args": {
+        "lockedPositional": ["refresh"],
+        "defaults": {
+          "--scope": "path"
+        }
+      }
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        $result = Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir
+
+        (Test-Path -LiteralPath (Join-Path $binDir 'envrefresh.cmd')) | Should Be $false
+        (Test-Path -LiteralPath (Join-Path $binDir 'envrefresh.ps1')) | Should Be $true
+        $result.launchers.Count | Should Be 1
+        $result.launchers[0].launcherType | Should Be 'ps1'
 
         Remove-Item -Recurse -Force -Path $root
     }

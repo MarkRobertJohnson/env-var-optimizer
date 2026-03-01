@@ -101,4 +101,17 @@ Describe 'PathRefresh' {
         }
     }
 
+    It 'does not treat null path parameters as explicit empty values' {
+        $original = [Environment]::GetEnvironmentVariable('Path', 'Process')
+        [Environment]::SetEnvironmentVariable('Path', 'C:\\KeepMe', 'Process')
+
+        try {
+            $result = Invoke-PathRefresh -UserPathValue $null -MachinePathValue 'C:\\MachinePath' -WhatIf
+            $result.skipped | Should Not Be $true
+            $result.machineEntryCount | Should Be 1
+        }
+        finally {
+            [Environment]::SetEnvironmentVariable('Path', $original, 'Process')
+        }
+    }
 }

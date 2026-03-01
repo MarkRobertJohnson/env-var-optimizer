@@ -415,29 +415,37 @@ function Sync-PathShims {
             throw "Shim '$name' is missing target."
         }
 
-        if ($hasArgumentPolicy -and $launcherType -ne 'cmd+ps1') {
-            throw "Shim '$name' uses args policy and must set launcherType to 'cmd+ps1'."
+        if ($launcherType -notin @('cmd', 'cmd+ps1', 'ps1')) {
+            throw "Shim '$name' has unsupported launcherType '$launcherType'. Use 'cmd', 'ps1', or 'cmd+ps1'."
+        }
+
+        if ($hasArgumentPolicy -and $launcherType -eq 'cmd') {
+            throw "Shim '$name' uses args policy and must set launcherType to 'ps1' or 'cmd+ps1'."
         }
 
         $cmdPath = Join-Path $BinDir ($name + '.cmd')
-        $ps1Path = if ($launcherType -eq 'cmd+ps1') { Join-Path $BinDir ($name + '.ps1') } else { $null }
-        $cmdContent = Get-CmdLauncherContent -Target $target -Ps1LauncherPath $ps1Path
+        $ps1Path = Join-Path $BinDir ($name + '.ps1')
 
-        $cmdAction = Get-FileWriteAction -Path $cmdPath -Content $cmdContent
+        if ($launcherType -in @('cmd', 'cmd+ps1')) {
+            $cmdPs1Path = if ($launcherType -eq 'cmd+ps1') { $ps1Path } else { $null }
+            $cmdContent = Get-CmdLauncherContent -Target $target -Ps1LauncherPath $cmdPs1Path
 
-        if (-not $WhatIf -and $cmdAction -ne 'unchanged') {
-            $cmdContent | Set-Content -Path $cmdPath -Encoding ASCII -NoNewline
+            $cmdAction = Get-FileWriteAction -Path $cmdPath -Content $cmdContent
+
+            if (-not $WhatIf -and $cmdAction -ne 'unchanged') {
+                $cmdContent | Set-Content -Path $cmdPath -Encoding ASCII -NoNewline
+            }
+
+            $results += [pscustomobject]@{
+                name         = $name
+                launcher     = $cmdPath
+                action       = $cmdAction
+                target       = $target
+                launcherType = 'cmd'
+            }
         }
 
-        $results += [pscustomobject]@{
-            name       = $name
-            launcher   = $cmdPath
-            action     = $cmdAction
-            target     = $target
-            launcherType = 'cmd'
-        }
-
-        if ($launcherType -eq 'cmd+ps1') {
+        if ($launcherType -in @('ps1', 'cmd+ps1')) {
             $ps1Content = Get-Ps1LauncherContent -Target $target -ArgumentPolicy $argumentPolicy
             $ps1Action = Get-FileWriteAction -Path $ps1Path -Content $ps1Content
 
@@ -446,10 +454,10 @@ function Sync-PathShims {
             }
 
             $results += [pscustomobject]@{
-                name       = $name
-                launcher   = $ps1Path
-                action     = $ps1Action
-                target     = $target
+                name         = $name
+                launcher     = $ps1Path
+                action       = $ps1Action
+                target       = $target
                 launcherType = 'ps1'
             }
         }

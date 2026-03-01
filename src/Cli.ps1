@@ -23,7 +23,7 @@ function Show-PathOptHelp {
         '  ./pathopt.ps1 rollback --snapshot <file> [--whatif]',
         '  ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]',
         '  ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]',
-        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
+        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 doctor [--json] [--out <file>]'
     )
@@ -261,8 +261,8 @@ function Invoke-ShimCommand {
             '--target' { $shimTarget = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--target' }
             '--launcher-type' {
                 $launcherType = (Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--launcher-type').ToLowerInvariant()
-                if ($launcherType -notin @('cmd', 'cmd+ps1')) {
-                    throw "Invalid --launcher-type value: $launcherType. Use 'cmd' or 'cmd+ps1'."
+                if ($launcherType -notin @('cmd', 'ps1', 'cmd+ps1')) {
+                    throw "Invalid --launcher-type value: $launcherType. Use 'cmd', 'ps1', or 'cmd+ps1'."
                 }
             }
             '--bin-dir' { $binDir = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--bin-dir' }

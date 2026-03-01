@@ -21,7 +21,7 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
 ./pathopt.ps1 rollback --snapshot <file> [--whatif]
 ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]
 ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]
-./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|cmd+ps1]] [--bin-dir <dir>] [--whatif]
+./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]
 ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]
 ./pathopt.ps1 doctor [--json] [--out <file>]
 ```
@@ -158,7 +158,7 @@ Shims can embed command defaults with an `args` block:
 {
   "name": "envrefresh",
   "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
-  "launcherType": "cmd+ps1",
+  "launcherType": "ps1",
   "args": {
     "lockedPositional": ["refresh"],
     "defaults": {
@@ -174,7 +174,7 @@ Rules:
 - `allowPositionalTail` (optional): when `true`, allows additional positional arguments after the locked command tokens.
 - `defaults`: long options that are appended only when users did not already pass that option.
 - `lockedOptions` (optional): long options with fixed values; conflicting user values fail fast.
-- `args` policies currently require `launcherType: cmd+ps1`.
+- `args` policies require a PowerShell launcher: `launcherType: ps1` or `launcherType: cmd+ps1`.
 
 Example behavior for `envrefresh`:
 

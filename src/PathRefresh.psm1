@@ -163,7 +163,7 @@ function Invoke-PathRefresh {
         source            = 'Machine+User'
         beforeLength      = $currentProcessPath.Length
         afterLength       = $merged.value.Length
-        beforeEntryCount  = (Split-PathVariableValue -Value $currentProcessPath).Count
+        beforeEntryCount  = @(Split-PathVariableValue -Value $currentProcessPath).Count
         afterEntryCount   = $merged.entries.Count
         duplicatesRemoved = $merged.duplicatesRemoved
         machineEntryCount = $merged.machineEntryCount
