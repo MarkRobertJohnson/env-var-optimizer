@@ -26,6 +26,25 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
 ./pathopt.ps1 doctor [--json] [--out <file>]
 ```
 
+## Command Help
+
+Every command and shim subcommand supports inline help:
+
+```powershell
+./pathopt.ps1 <command> --help
+./pathopt.ps1 help <command>
+./pathopt.ps1 help shim <sync|install>
+```
+
+Examples:
+
+```powershell
+./pathopt.ps1 analyze --help
+./pathopt.ps1 plan --scope both --help
+./pathopt.ps1 shim sync --help
+./pathopt.ps1 help shim install
+```
+
 ## Refresh Current Process Environment
 
 Use `refresh` to update the current PowerShell process from the latest User and Machine environment values without restarting the terminal.

@@ -13,8 +13,81 @@ function Show-PathOptHelp {
     [CmdletBinding()]
     param()
 
+    Show-PathOptTopicHelp -Topics @()
+}
+
+function Write-PathOptHelpLines {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string[]]$Lines
+    )
+
+    $Lines -join [Environment]::NewLine | Write-Output
+}
+
+function Test-IsHelpToken {
+    [CmdletBinding()]
+    param([string]$Token)
+
+    if ([string]::IsNullOrWhiteSpace($Token)) {
+        return $false
+    }
+
+    $normalized = $Token.ToLowerInvariant()
+    return $normalized -in @('--help', '-h', 'help')
+}
+
+function Test-ArgsContainHelp {
+    [CmdletBinding()]
+    param([string[]]$Args)
+
+    foreach ($arg in @($Args)) {
+        if (Test-IsHelpToken -Token $arg) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Show-PathOptTopicHelp {
+    [CmdletBinding()]
+    param([string[]]$Topics)
+
+    $normalizedTopics = @()
+    foreach ($topic in @($Topics)) {
+        if (-not [string]::IsNullOrWhiteSpace($topic)) {
+            $normalizedTopics += $topic.ToLowerInvariant()
+        }
+    }
+
+    $topicKey = ($normalizedTopics -join ' ').Trim()
+
+    switch ($topicKey) {
+        '' { Show-PathOptRootHelp; return }
+        'analyze' { Show-AnalyzeHelp; return }
+        'plan' { Show-PlanHelp; return }
+        'apply' { Show-ApplyHelp; return }
+        'rollback' { Show-RollbackHelp; return }
+        'add' { Show-AddHelp; return }
+        'refresh' { Show-RefreshHelp; return }
+        'shim' { Show-ShimHelp; return }
+        'shim sync' { Show-ShimSyncHelp; return }
+        'shim install' { Show-ShimInstallHelp; return }
+        'doctor' { Show-DoctorHelp; return }
+        default { throw "Unknown help topic: $topicKey" }
+    }
+}
+
+function Show-PathOptRootHelp {
+    [CmdletBinding()]
+    param()
+
     $lines = @(
         'PATH Optimizer (Windows PowerShell)',
+        'Safely inspect, plan, and update PATH across User and Machine scopes.',
         '',
         'Usage:',
         '  ./pathopt.ps1 analyze [--json] [--out <file>]',
@@ -25,10 +98,283 @@ function Show-PathOptHelp {
         '  ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]',
         '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]',
-        '  ./pathopt.ps1 doctor [--json] [--out <file>]'
+        '  ./pathopt.ps1 doctor [--json] [--out <file>]',
+        '',
+        'Help:',
+        '  ./pathopt.ps1 <command> --help',
+        '  ./pathopt.ps1 help <command>',
+        '  ./pathopt.ps1 help shim <sync|install>',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 analyze --help',
+        '  ./pathopt.ps1 help plan',
+        '  ./pathopt.ps1 shim sync --help'
     )
 
-    $lines -join [Environment]::NewLine | Write-Output
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-AnalyzeHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: analyze',
+        'What it does:',
+        '  Captures current PATH state and diagnostics (duplicates, stale entries, collisions).',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 analyze [--json] [--out <file>]',
+        '',
+        'Arguments:',
+        '  --json        Emit JSON to stdout instead of PowerShell objects.',
+        '  --out <file>  Also write JSON payload to a file path.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 analyze',
+        '  ./pathopt.ps1 analyze --json',
+        '  ./pathopt.ps1 analyze --out .pathopt/analyze.json --json'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-PlanHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: plan',
+        'What it does:',
+        '  Builds an optimization plan and writes the plan JSON to disk.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 plan [--json] [--out <file>] [--scope user|machine|both]',
+        '',
+        'Arguments:',
+        '  --json                 Emit plan metadata + plan payload as JSON to stdout.',
+        '  --out <file>           Path where plan JSON is written. Defaults to .pathopt/plans/.',
+        '  --scope <value>        user, machine, or both (default: both).',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 plan',
+        '  ./pathopt.ps1 plan --scope both --json',
+        '  ./pathopt.ps1 plan --scope user --out .pathopt/plans/user-plan.json'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-ApplyHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: apply',
+        'What it does:',
+        '  Applies a previously generated plan and writes a rollback snapshot first.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 apply --plan <file> [--backup-dir <dir>] [--whatif]',
+        '',
+        'Arguments:',
+        '  --plan <file>          Required. Path to a plan JSON file from plan command.',
+        '  --backup-dir <dir>     Snapshot output directory (default: .pathopt/backups).',
+        '  --whatif               Preview actions without changing environment values.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 apply --plan .pathopt/plans/plan.json --whatif',
+        '  ./pathopt.ps1 apply --plan .pathopt/plans/plan.json',
+        '  ./pathopt.ps1 apply --plan .pathopt/plans/plan.json --backup-dir backup'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-RollbackHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: rollback',
+        'What it does:',
+        '  Restores PATH values from a snapshot captured during apply.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 rollback --snapshot <file> [--whatif]',
+        '',
+        'Arguments:',
+        '  --snapshot <file>      Required. Snapshot JSON file path.',
+        '  --whatif               Preview rollback changes without applying.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 rollback --snapshot .pathopt/backups/path-snapshot-20260207-192743.json --whatif',
+        '  ./pathopt.ps1 rollback --snapshot .pathopt/backups/path-snapshot-20260207-192743.json'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-AddHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: add',
+        'What it does:',
+        '  Adds one path entry to User or Machine PATH with validation and warnings.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]',
+        '',
+        'Arguments:',
+        '  <path>                 Required. Single directory path to add (quote if it has spaces).',
+        '  --scope <value>        user or machine (default: user).',
+        '  --position <value>     prepend or append (default: append).',
+        '  --force                Overrides critical length warnings.',
+        '  --whatif               Preview changes without writing environment values.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 add "C:\Tools\bin"',
+        '  ./pathopt.ps1 add "C:\MyApp\bin" --position prepend',
+        '  ./pathopt.ps1 add "C:\Tools\bin" --scope machine --whatif'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-RefreshHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: refresh',
+        'What it does:',
+        '  Refreshes the current process environment from User and Machine values.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]',
+        '',
+        'Arguments:',
+        '  --scope <value>        path (default), all, or a specific variable name.',
+        '  --whatif               Preview refresh operations only.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 refresh',
+        '  ./pathopt.ps1 refresh --scope all',
+        '  ./pathopt.ps1 refresh --scope JAVA_HOME --whatif'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-ShimHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: shim',
+        'What it does:',
+        '  Creates or reconciles shim launcher files in your bin directory.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 shim sync [options]',
+        '  ./pathopt.ps1 shim install [options]',
+        '',
+        'Subcommands:',
+        '  sync                   Build/update shims from a manifest or single name+target pair.',
+        '  install                Idempotent install using a full command manifest and state file.',
+        '',
+        'Help:',
+        '  ./pathopt.ps1 shim sync --help',
+        '  ./pathopt.ps1 shim install --help'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-ShimSyncHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: shim sync',
+        'What it does:',
+        '  Generates launcher shims directly from a manifest or from --name/--target input.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
+        '',
+        'Arguments:',
+        '  --manifest <file>      Manifest path containing one or more shim definitions.',
+        '  --name <shim>          Shim name for single-shim mode.',
+        '  --target <path>        Target executable/script for single-shim mode.',
+        '  --launcher-type <v>    cmd, ps1, or cmd+ps1 (default: cmd+ps1 in single-shim mode).',
+        '  --bin-dir <dir>        Launcher output directory (default: C:\\Tools\\bin).',
+        '  --whatif               Preview generated/updated launchers.',
+        '',
+        'Notes:',
+        '  Use either --manifest OR (--name + --target), not both.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 shim sync --manifest examples/shim-manifest.sample.json',
+        '  ./pathopt.ps1 shim sync --name envrefresh --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --launcher-type ps1',
+        '  ./pathopt.ps1 shim sync --name pathdoctor --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --whatif'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-ShimInstallHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: shim install',
+        'What it does:',
+        '  Reconciles the project command manifest with the bin directory and tracked state.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]',
+        '',
+        'Arguments:',
+        '  --manifest <file>      Full installer manifest (default: examples/pathopt-commands.manifest.json).',
+        '  --state <file>         Installer state file path (default: .pathopt/state/shim-install-state.json).',
+        '  --bin-dir <dir>        Launcher output directory (default: C:\\Tools\\bin).',
+        '  --whatif               Preview create/update/remove operations.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 shim install',
+        '  ./pathopt.ps1 shim install --manifest examples/pathopt-commands.manifest.json --state .pathopt/state/shim-install-state.json',
+        '  ./pathopt.ps1 shim install --bin-dir C:\\Tools\\bin --whatif'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
+}
+
+function Show-DoctorHelp {
+    [CmdletBinding()]
+    param()
+
+    $lines = @(
+        'Command: doctor',
+        'What it does:',
+        '  Runs quick health checks for PATH diagnostics and common command availability.',
+        '',
+        'Usage:',
+        '  ./pathopt.ps1 doctor [--json] [--out <file>]',
+        '',
+        'Arguments:',
+        '  --json        Emit JSON to stdout.',
+        '  --out <file>  Also write JSON payload to a file path.',
+        '',
+        'Examples:',
+        '  ./pathopt.ps1 doctor',
+        '  ./pathopt.ps1 doctor --json',
+        '  ./pathopt.ps1 doctor --json --out .pathopt/doctor.json'
+    )
+
+    Write-PathOptHelpLines -Lines $lines
 }
 
 function Get-RequiredOptionValue {
@@ -90,6 +436,11 @@ function Invoke-AnalyzeCommand {
     [CmdletBinding()]
     param([string[]]$Args)
 
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-AnalyzeHelp
+        return
+    }
+
     $asJson = $false
     $outFile = $null
 
@@ -118,6 +469,11 @@ function Invoke-AnalyzeCommand {
 function Invoke-PlanCommand {
     [CmdletBinding()]
     param([string[]]$Args)
+
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-PlanHelp
+        return
+    }
 
     $asJson = $false
     $outFile = $null
@@ -161,6 +517,11 @@ function Invoke-ApplyCommand {
     [CmdletBinding()]
     param([string[]]$Args)
 
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-ApplyHelp
+        return
+    }
+
     $planPath = $null
     $backupDir = Join-Path (Get-Location) '.pathopt\\backups'
     $whatIf = $false
@@ -185,6 +546,11 @@ function Invoke-RollbackCommand {
     [CmdletBinding()]
     param([string[]]$Args)
 
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-RollbackHelp
+        return
+    }
+
     $snapshotPath = $null
     $whatIf = $false
 
@@ -206,6 +572,20 @@ function Invoke-RollbackCommand {
 function Invoke-ShimCommand {
     [CmdletBinding()]
     param([string[]]$Args)
+
+    if (Test-ArgsContainHelp -Args $Args) {
+        $shimTopic = 'shim'
+        foreach ($arg in @($Args)) {
+            $normalizedArg = $arg.ToLowerInvariant()
+            if ($normalizedArg -in @('sync', 'install')) {
+                $shimTopic = "shim $normalizedArg"
+                break
+            }
+        }
+
+        Show-PathOptTopicHelp -Topics @($shimTopic)
+        return
+    }
 
     if ($Args.Count -eq 0) {
         throw 'shim requires a subcommand (sync|install).'
@@ -309,6 +689,11 @@ function Invoke-DoctorCommand {
     [CmdletBinding()]
     param([string[]]$Args)
 
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-DoctorHelp
+        return
+    }
+
     $asJson = $false
     $outFile = $null
 
@@ -351,6 +736,11 @@ function Invoke-DoctorCommand {
 function Invoke-AddCommand {
     [CmdletBinding()]
     param([string[]]$Args)
+
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-AddHelp
+        return
+    }
 
     if ($Args.Count -eq 0) {
         throw 'add requires a path argument. Usage: pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]'
@@ -420,6 +810,11 @@ function Invoke-RefreshCommand {
     [CmdletBinding()]
     param([string[]]$Args)
 
+    if (Test-ArgsContainHelp -Args $Args) {
+        Show-RefreshHelp
+        return
+    }
+
     $scope = 'path'
     $whatIf = $false
 
@@ -461,7 +856,7 @@ function Invoke-PathOptCli {
         'refresh' { Invoke-RefreshCommand -Args $rest; break }
         'shim' { Invoke-ShimCommand -Args $rest; break }
         'doctor' { Invoke-DoctorCommand -Args $rest; break }
-        'help' { Show-PathOptHelp; break }
+        'help' { Show-PathOptTopicHelp -Topics $rest; break }
         '--help' { Show-PathOptHelp; break }
         '-h' { Show-PathOptHelp; break }
         default { throw "Unknown command: $command" }
