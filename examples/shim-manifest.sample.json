@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "priority": {
+    "python": "C:\\Python311\\python.exe"
+  },
+  "shims": [
+    {
+      "name": "python",
+      "target": "C:\\Python311\\python.exe",
+      "launcherType": "cmd"
+    },
+    {
+      "name": "node",
+      "target": "C:\\Program Files\\nodejs\\node.exe",
+      "launcherType": "cmd"
+    },
+    {
+      "name": "mytool",
+      "target": "C:\\Tools\\mytool\\run.ps1",
+      "launcherType": "cmd+ps1"
+    }
+  ]
+}
