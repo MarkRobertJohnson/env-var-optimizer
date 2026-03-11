@@ -41,6 +41,8 @@ Describe 'Cli Help' {
 
         $helpText.Contains('Command: shim sync') | Should Be $true
         $helpText.Contains('--manifest <file>') | Should Be $true
+        $helpText.Contains('Manifest JSON example:') | Should Be $true
+        $helpText.Contains('"shims": [') | Should Be $true
     }
 
     It 'routes help shim install through help command' {
