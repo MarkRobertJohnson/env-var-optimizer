@@ -139,6 +139,20 @@ For project command shims, use `examples/pathopt-commands.manifest.json`.
 When `--manifest` is omitted, the CLI auto-generates one at `.pathopt/manifests/`.
 `--bin-dir` defaults to `C:\\Tools\\bin`.
 
+Manifest entries can use wildcard targets to generate one shim per matched file. If the wildcard matches multiple files, omit `name` and shim names are derived from each file name.
+
+```json
+{
+  "version": 1,
+  "shims": [
+    {
+      "target": "tools\\*.bat",
+      "launcherType": "cmd"
+    }
+  ]
+}
+```
+
 ### Install Project Command Shims (Idempotent)
 
 Install or update all project command shims from the full command manifest:

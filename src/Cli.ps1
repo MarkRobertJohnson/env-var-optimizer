@@ -315,6 +315,8 @@ function Show-ShimSyncHelp {
         '',
         'Notes:',
         '  Use either --manifest OR (--name + --target), not both.',
+        '  In manifest mode, target supports wildcards (for example: tools\\*.bat).',
+        '  If wildcard target matches multiple files, omit name to auto-generate shim names from file names.',
         '',
         'Manifest JSON example:',
         '  {',

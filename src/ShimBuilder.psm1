@@ -178,6 +178,56 @@ function Read-ShimManifest {
         throw 'Manifest must contain a shims array.'
     }
 
+    $manifestDir = Split-Path -Parent $ManifestPath
+    $expandedShims = @()
+
+    foreach ($shim in @($manifest.shims)) {
+        $target = [string]$shim.target
+        if ([string]::IsNullOrWhiteSpace($target)) {
+            $expandedShims += $shim
+            continue
+        }
+
+        if (-not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($target)) {
+            $expandedShims += $shim
+            continue
+        }
+
+        $targetPattern = if ([System.IO.Path]::IsPathRooted($target)) {
+            $target
+        }
+        else {
+            Join-Path $manifestDir $target
+        }
+
+        $matches = @(Get-ChildItem -Path $targetPattern -File -ErrorAction SilentlyContinue | Sort-Object -Property FullName)
+        if ($matches.Count -eq 0) {
+            throw "Shim wildcard target '$target' did not match any files."
+        }
+
+        $declaredNameProperty = $shim.PSObject.Properties['name']
+        $declaredName = if ($null -ne $declaredNameProperty) { [string]$declaredNameProperty.Value } else { $null }
+        if (-not [string]::IsNullOrWhiteSpace($declaredName) -and $matches.Count -gt 1) {
+            throw "Shim name '$declaredName' cannot be used with wildcard target '$target' because it matched multiple files. Omit name to auto-generate shim names."
+        }
+
+        foreach ($match in $matches) {
+            $expandedShim = [ordered]@{}
+            foreach ($property in $shim.PSObject.Properties) {
+                $expandedShim[$property.Name] = $property.Value
+            }
+
+            if ([string]::IsNullOrWhiteSpace($declaredName)) {
+                $expandedShim['name'] = [System.IO.Path]::GetFileNameWithoutExtension($match.Name)
+            }
+
+            $expandedShim['target'] = $match.FullName
+            $expandedShims += [pscustomobject]$expandedShim
+        }
+    }
+
+    $manifest.shims = @($expandedShims)
+
     return $manifest
 }
 

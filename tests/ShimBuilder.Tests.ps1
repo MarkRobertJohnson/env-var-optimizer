@@ -1,6 +1,39 @@
 Import-Module (Join-Path $PSScriptRoot '../src/ShimBuilder.psm1') -Force -DisableNameChecking
 
 Describe 'ShimBuilder' {
+    It 'expands wildcard targets into one shim per matched file' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-wildcard-' + [guid]::NewGuid().ToString('N'))
+        $toolsDir = Join-Path $root 'tools'
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+        '@echo off' | Set-Content -Path (Join-Path $toolsDir 'alpha.bat') -Encoding ASCII
+        '@echo off' | Set-Content -Path (Join-Path $toolsDir 'beta.bat') -Encoding ASCII
+        '@echo off' | Set-Content -Path (Join-Path $toolsDir 'ignore.cmd') -Encoding ASCII
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "target": "tools\\*.bat",
+      "launcherType": "cmd"
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        $result = Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir
+
+        $result.shimCount | Should Be 2
+        (Test-Path -LiteralPath (Join-Path $binDir 'alpha.cmd')) | Should Be $true
+        (Test-Path -LiteralPath (Join-Path $binDir 'beta.cmd')) | Should Be $true
+        (Test-Path -LiteralPath (Join-Path $binDir 'ignore.cmd')) | Should Be $false
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
     It 'creates cmd and ps1 launchers from manifest' {
         $root = Join-Path $env:TEMP ('pathopt-shim-' + [guid]::NewGuid().ToString('N'))
         $manifestPath = Join-Path $root 'manifest.json'
