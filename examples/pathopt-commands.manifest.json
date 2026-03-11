@@ -83,7 +83,8 @@
         "lockedPositional": [
           "shim",
           "sync"
-        ]
+        ],
+        "allowPositionalTail": true
       }
     }
   ]

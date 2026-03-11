@@ -65,3 +65,15 @@ Describe 'Cli Help' {
         $didThrow | Should Be $true
     }
 }
+
+Describe 'Installer Manifest Defaults' {
+    It 'allows positional tail arguments for shimgen in the default command manifest' {
+        $manifestPath = Join-Path $PSScriptRoot '../examples/pathopt-commands.manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+
+        $shimgen = @($manifest.shims | Where-Object { $_.name -eq 'shimgen' } | Select-Object -First 1)
+        $shimgen.Count | Should Be 1
+
+        [bool]$shimgen[0].args.allowPositionalTail | Should Be $true
+    }
+}
