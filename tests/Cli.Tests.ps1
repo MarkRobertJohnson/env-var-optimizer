@@ -77,3 +77,37 @@ Describe 'Installer Manifest Defaults' {
         [bool]$shimgen[0].args.allowPositionalTail | Should Be $true
     }
 }
+
+Describe 'Shim Sync Positional Target' {
+    It 'supports positional target glob shorthand with auto-generated shim names' {
+        $root = Join-Path $env:TEMP ('pathopt-cli-shim-shortcut-' + [guid]::NewGuid().ToString('N'))
+        $toolDir = Join-Path $root 'tools'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $toolDir | Out-Null
+        '@echo off' | Set-Content -Path (Join-Path $toolDir 'foo.bat') -Encoding ASCII
+        '@echo off' | Set-Content -Path (Join-Path $toolDir 'bar.bat') -Encoding ASCII
+
+        $targetPattern = Join-Path $toolDir '*.bat'
+        $result = Invoke-PathOptCli -CliArgs @('shim', 'sync', $targetPattern, '--bin-dir', $binDir, '--whatif')
+
+        $result.shimCount | Should Be 2
+        @($result.launchers | Where-Object { $_.name -eq 'foo' -or $_.name -eq 'bar' }).Count | Should Be 4
+        [System.IO.Path]::GetFileName([string]$result.manifestPath) | Should Be 'shim-auto-positional.json'
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'rejects mixing positional target shorthand with explicit target options' {
+        $didThrow = $false
+        try {
+            Invoke-PathOptCli -CliArgs @('shim', 'sync', 'C:\\tools\\*.bat', '--target', 'C:\\tools\\foo.bat') | Out-Null
+        }
+        catch {
+            $didThrow = $true
+            $_.Exception.Message.Contains('Use either positional <target> shorthand or --name/--target options, not both.') | Should Be $true
+        }
+
+        $didThrow | Should Be $true
+    }
+}

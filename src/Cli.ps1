@@ -300,10 +300,10 @@ function Show-ShimSyncHelp {
     $lines = @(
         'Command: shim sync',
         'What it does:',
-        '  Generates launcher shims directly from a manifest or from --name/--target input.',
+        '  Generates launcher shims directly from a manifest, --name/--target input, or a positional target/glob.',
         '',
         'Usage:',
-        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
+        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1] | <target>] [--bin-dir <dir>] [--whatif]',
         '',
         'Arguments:',
         '  --manifest <file>      Manifest path containing one or more shim definitions.',
@@ -312,9 +312,10 @@ function Show-ShimSyncHelp {
         '  --launcher-type <v>    cmd, ps1, or cmd+ps1 (default: cmd+ps1 in single-shim mode).',
         '  --bin-dir <dir>        Launcher output directory (default: C:\\Tools\\bin).',
         '  --whatif               Preview generated/updated launchers.',
+        '  <target>               Positional shorthand target path or wildcard glob (for example: tools\\*.bat).',
         '',
         'Notes:',
-        '  Use either --manifest OR (--name + --target), not both.',
+        '  Use either --manifest OR (--name + --target) OR positional <target>.',
         '  In manifest mode, target supports wildcards (for example: tools\\*.bat).',
         '  If wildcard target matches multiple files, omit name to auto-generate shim names from file names.',
         '',
@@ -333,7 +334,8 @@ function Show-ShimSyncHelp {
         'Examples:',
         '  ./pathopt.ps1 shim sync --manifest examples/shim-manifest.sample.json',
         '  ./pathopt.ps1 shim sync --name envrefresh --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --launcher-type ps1',
-        '  ./pathopt.ps1 shim sync --name pathdoctor --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --whatif'
+        '  ./pathopt.ps1 shim sync --name pathdoctor --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --whatif',
+        '  ./pathopt.ps1 shim sync C:\\Users\\you\\AppData\\Local\\miniconda3\\condabin\\*.bat'
     )
 
     Write-PathOptHelpLines -Lines $lines
@@ -644,6 +646,7 @@ function Invoke-ShimCommand {
     $manifestPath = $null
     $shimName = $null
     $shimTarget = $null
+    $positionalTarget = $null
     $launcherType = 'cmd+ps1'
     $binDir = 'C:\\Tools\\bin'
     $whatIf = $false
@@ -661,32 +664,62 @@ function Invoke-ShimCommand {
             }
             '--bin-dir' { $binDir = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--bin-dir' }
             '--whatif' { $whatIf = $true }
-            default { throw "Unknown shim sync option: $($Args[$i])" }
+            default {
+                if ($Args[$i].StartsWith('-')) {
+                    throw "Unknown shim sync option: $($Args[$i])"
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($positionalTarget)) {
+                    throw 'shim sync accepts at most one positional target/glob argument.'
+                }
+
+                $positionalTarget = $Args[$i]
+            }
         }
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($manifestPath) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget))) {
-        throw 'Specify either --manifest or (--name and --target), not both.'
+    if (-not [string]::IsNullOrWhiteSpace($manifestPath) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget) -or -not [string]::IsNullOrWhiteSpace($positionalTarget))) {
+        throw 'Specify either --manifest or (--name and --target) or a positional <target>, not both.'
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($positionalTarget) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget))) {
+        throw 'Use either positional <target> shorthand or --name/--target options, not both.'
     }
 
     if ([string]::IsNullOrWhiteSpace($manifestPath)) {
-        if ([string]::IsNullOrWhiteSpace($shimName) -or [string]::IsNullOrWhiteSpace($shimTarget)) {
-            throw 'shim sync requires either --manifest <file> or --name <shim> --target <path>.'
+        if (-not [string]::IsNullOrWhiteSpace($positionalTarget)) {
+            $shimTarget = $positionalTarget
+        }
+
+        $isNamedSingleShim = (-not [string]::IsNullOrWhiteSpace($shimName) -and -not [string]::IsNullOrWhiteSpace($shimTarget))
+        $isPositionalShortcut = (-not [string]::IsNullOrWhiteSpace($shimTarget) -and [string]::IsNullOrWhiteSpace($shimName))
+
+        if (-not $isNamedSingleShim -and -not $isPositionalShortcut) {
+            throw 'shim sync requires either --manifest <file>, --name <shim> --target <path>, or positional <target>. '
         }
 
         $generatedManifestDir = Join-Path (Get-Location) '.pathopt\\manifests'
         New-Item -ItemType Directory -Force -Path $generatedManifestDir | Out-Null
 
-        $safeName = ($shimName -replace '[^A-Za-z0-9_.-]', '_')
+        $safeNameSource = if ([string]::IsNullOrWhiteSpace($shimName)) { 'positional' } else { $shimName }
+        $safeName = ($safeNameSource -replace '[^A-Za-z0-9_.-]', '_')
         $generatedManifestPath = Join-Path $generatedManifestDir ("shim-auto-$safeName.json")
 
         $manifestObject = [pscustomobject]@{
             version = 1
             shims   = @(
-                [pscustomobject]@{
-                    name         = $shimName
-                    target       = $shimTarget
-                    launcherType = $launcherType
+                if ($isPositionalShortcut) {
+                    [pscustomobject]@{
+                        target       = $shimTarget
+                        launcherType = $launcherType
+                    }
+                }
+                else {
+                    [pscustomobject]@{
+                        name         = $shimName
+                        target       = $shimTarget
+                        launcherType = $launcherType
+                    }
                 }
             )
         }
