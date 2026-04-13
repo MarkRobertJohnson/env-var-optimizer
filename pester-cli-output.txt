@@ -1,0 +1,40 @@
+
+
+
+
+
+Describing Cli Help
+ [+] shows root help when no args are provided 1.9s
+ [+] shows command help for analyze --help 281ms
+ [+] shows command help when help token appears after options 92ms
+ [+] routes help command for top-level topics 25ms
+ [+] shows shim help for shim --help 52ms
+ [+] shows shim sync help when requesting subcommand help 33ms
+ [+] routes help shim install through help command 48ms
+ [+] preserves unknown option errors for non-help command invocations 82ms
+Describing Installer Manifest Defaults
+ [+] allows positional tail arguments for shimgen in the default command manifest 1.53s
+Describing Shim Sync Positional Target
+ [+] supports positional target glob shorthand with auto-generated shim names 1.32s
+ [+] rejects mixing positional target shorthand with explicit target options 40ms
+ [-] falls back to LocalAppData when the current directory is not writable 1.58s
+   Expected string length 132 but was 124. Strings differ at index 102.
+   Expected: {C:\Users\TEMP.NVOICEPAY\AppData\Local\Temp\pathopt-cli-shim-fallback-3d1197255d384d19a143d8b86db0a443\localappdata\pathopt\manifests}
+   But was:  {C:\Users\TEMP.NVOICEPAY\AppData\Local\Temp\pathopt-cli-shim-fallback-3d1197255d384d19a143d8b86db0a443\cwd\.pathopt\manifests}
+   -----------------------------------------------------------------------------------------------------------------^
+   155:             $actualManifestDir | Should Be $expectedManifestDir
+   at <ScriptBlock>, D:\dev\env-var-optimizer\tests\Cli.Tests.ps1: line 155
+Tests completed in 6.98s
+Passed: 11 Failed: 1 Skipped: 0 Pending: 0 Inconclusive: 0
+
+TagFilter        : {}
+ExcludeTagFilter : {}
+TestNameFilter   : 
+TotalCount       : 12
+PassedCount      : 11
+FailedCount      : 1
+SkippedCount     : 0
+PendingCount     : 0
+Time             : 00:00:06.9817165
+TestResult       : {@{Describe=Cli Help; Context=; Name=shows root help when no args are provided; Result=Passed; Passed=True; Time=00:00:01.8970065; FailureMessage=; StackTrace=; ErrorRecord=; ParameterizedSuiteName=; Parameters=System.Collections.Specialized.OrderedDictionary}, @{Describe=Cli Help; Context=; Name=shows command help for analyze --help; Result=Passed; Passed=True; Time=00:00:00.2816731; FailureMessage=; StackTrace=; ErrorRecord=; ParameterizedSuiteName=; Parameters=System.Collections.Specialized.OrderedDictionary}, @{Describe=Cli Help; Context=; Name=shows command help when help token appears after options; Result=Passed; Passed=True; Time=00:00:00.0922933; FailureMessage=; StackTrace=; ErrorRecord=; ParameterizedSuiteName=; Parameters=System.Collections.Specialized.OrderedDictionary}, @{Describe=Cli Help; Context=; Name=routes help command for top-level topics; Result=Passed; Passed=True; Time=00:00:00.0255180; FailureMessage=; StackTrace=; ErrorRecord=; ParameterizedSuiteName=; Parameters=System.Collections.Specialized.OrderedDictionary}…}
+

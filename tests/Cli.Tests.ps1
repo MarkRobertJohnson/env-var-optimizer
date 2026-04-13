@@ -110,4 +110,39 @@ Describe 'Shim Sync Positional Target' {
 
         $didThrow | Should Be $true
     }
+
+    It 'falls back to LocalAppData when the current location cannot host filesystem output' {
+        $root = Join-Path $env:TEMP ('pathopt-cli-shim-fallback-' + [guid]::NewGuid().ToString('N'))
+        $localAppData = Join-Path $root 'localappdata'
+        $binDir = Join-Path $root 'bin'
+        $targetPath = Join-Path $root 'tools\blender.exe'
+        $originalLocalAppData = $env:LOCALAPPDATA
+        $didPushLocation = $false
+
+        New-Item -ItemType Directory -Force -Path $localAppData | Out-Null
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
+        'stub' | Set-Content -Path $targetPath -Encoding ASCII
+
+        try {
+            $env:LOCALAPPDATA = $localAppData
+            Push-Location Function:
+            $didPushLocation = $true
+
+            $result = Invoke-PathOptCli -CliArgs @('shim', 'sync', '--name', 'blender', '--target', $targetPath, '--bin-dir', $binDir, '--whatif')
+            $expectedManifestDir = [System.IO.Path]::GetFullPath((Join-Path $localAppData 'pathopt\manifests'))
+            $actualManifestDir = [System.IO.Path]::GetFullPath((Split-Path -Parent ([string]$result.manifestPath)))
+
+            $actualManifestDir | Should Be $expectedManifestDir
+            (Test-Path -LiteralPath $expectedManifestDir -PathType Container) | Should Be $true
+            (Test-Path -LiteralPath $result.manifestPath -PathType Leaf) | Should Be $true
+        }
+        finally {
+            if ($didPushLocation) {
+                Pop-Location
+            }
+
+            $env:LOCALAPPDATA = $originalLocalAppData
+            Remove-Item -Recurse -Force -Path $root
+        }
+    }
 }

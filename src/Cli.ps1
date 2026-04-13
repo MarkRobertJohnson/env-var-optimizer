@@ -52,6 +52,74 @@ function Test-ArgsContainHelp {
     return $false
 }
 
+function Test-PathOptDirectoryWritable {
+    [CmdletBinding()]
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return $false
+    }
+
+    $probePath = Join-Path $Path ("pathopt-write-test-" + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        $stream = [System.IO.File]::Open(
+            $probePath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None)
+        $stream.Dispose()
+        Remove-Item -LiteralPath $probePath -Force
+        return $true
+    }
+    catch {
+        if (Test-Path -LiteralPath $probePath -PathType Leaf) {
+            Remove-Item -LiteralPath $probePath -Force -ErrorAction SilentlyContinue
+        }
+
+        return $false
+    }
+}
+
+function Get-PathOptDefaultDataRoot {
+    [CmdletBinding()]
+    param()
+
+    $location = Get-Location
+    if ($location.Provider.Name -eq 'FileSystem' -and (Test-PathOptDirectoryWritable -Path $location.ProviderPath)) {
+        return Join-Path $location.ProviderPath '.pathopt'
+    }
+
+    $localAppData = $env:LOCALAPPDATA
+    if ([string]::IsNullOrWhiteSpace($localAppData)) {
+        $localAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+    }
+
+    if (Test-PathOptDirectoryWritable -Path $localAppData) {
+        return Join-Path $localAppData 'pathopt'
+    }
+
+    $userProfile = $env:USERPROFILE
+    if ([string]::IsNullOrWhiteSpace($userProfile)) {
+        $userProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+    }
+
+    if (Test-PathOptDirectoryWritable -Path $userProfile) {
+        return Join-Path $userProfile '.pathopt'
+    }
+
+    throw 'Unable to resolve a writable PATH Optimizer data directory.'
+}
+
+function Get-PathOptDefaultPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$ChildPath
+    )
+
+    return Join-Path (Get-PathOptDefaultDataRoot) $ChildPath
+}
+
 function Show-PathOptTopicHelp {
     [CmdletBinding()]
     param([string[]]$Topics)
@@ -510,7 +578,7 @@ function Invoke-PlanCommand {
     }
 
     if ([string]::IsNullOrWhiteSpace($outFile)) {
-        $planDir = Join-Path (Get-Location) '.pathopt\\plans'
+        $planDir = Get-PathOptDefaultPath -ChildPath 'plans'
         New-Item -ItemType Directory -Force -Path $planDir | Out-Null
         $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         $outFile = Join-Path $planDir ("path-plan-$timestamp.json")
@@ -539,7 +607,7 @@ function Invoke-ApplyCommand {
     }
 
     $planPath = $null
-    $backupDir = Join-Path (Get-Location) '.pathopt\\backups'
+    $backupDir = Get-PathOptDefaultPath -ChildPath 'backups'
     $whatIf = $false
 
     for ($i = 0; $i -lt $Args.Count; $i++) {
@@ -637,7 +705,7 @@ function Invoke-ShimCommand {
         }
 
         if ([string]::IsNullOrWhiteSpace($statePath)) {
-            $statePath = Join-Path (Get-Location) '.pathopt\state\shim-install-state.json'
+            $statePath = Get-PathOptDefaultPath -ChildPath 'state\shim-install-state.json'
         }
 
         return Install-PathShims -ManifestPath $manifestPath -StatePath $statePath -BinDir $binDir -WhatIf:$whatIf
@@ -698,7 +766,7 @@ function Invoke-ShimCommand {
             throw 'shim sync requires either --manifest <file>, --name <shim> --target <path>, or positional <target>. '
         }
 
-        $generatedManifestDir = Join-Path (Get-Location) '.pathopt\\manifests'
+        $generatedManifestDir = Get-PathOptDefaultPath -ChildPath 'manifests'
         New-Item -ItemType Directory -Force -Path $generatedManifestDir | Out-Null
 
         $safeNameSource = if ([string]::IsNullOrWhiteSpace($shimName)) { 'positional' } else { $shimName }

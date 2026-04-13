@@ -182,6 +182,8 @@ function Read-ShimManifest {
     $expandedShims = @()
 
     foreach ($shim in @($manifest.shims)) {
+        $declaredNameProperty = $shim.PSObject.Properties['name']
+        $declaredName = if ($null -ne $declaredNameProperty) { [string]$declaredNameProperty.Value } else { $null }
         $target = [string]$shim.target
         if ([string]::IsNullOrWhiteSpace($target)) {
             $expandedShims += $shim
@@ -189,6 +191,29 @@ function Read-ShimManifest {
         }
 
         if (-not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($target)) {
+            if ([string]::IsNullOrWhiteSpace($declaredName)) {
+                $resolvedTarget = if ([System.IO.Path]::IsPathRooted($target)) {
+                    $target
+                }
+                else {
+                    Join-Path $manifestDir $target
+                }
+
+                $inferredName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedTarget)
+                if ([string]::IsNullOrWhiteSpace($inferredName)) {
+                    throw "Shim target '$target' requires an explicit name because a name could not be inferred from the path."
+                }
+
+                $expandedShim = [ordered]@{}
+                foreach ($property in $shim.PSObject.Properties) {
+                    $expandedShim[$property.Name] = $property.Value
+                }
+
+                $expandedShim['name'] = $inferredName
+                $expandedShims += [pscustomobject]$expandedShim
+                continue
+            }
+
             $expandedShims += $shim
             continue
         }
@@ -205,8 +230,6 @@ function Read-ShimManifest {
             throw "Shim wildcard target '$target' did not match any files."
         }
 
-        $declaredNameProperty = $shim.PSObject.Properties['name']
-        $declaredName = if ($null -ne $declaredNameProperty) { [string]$declaredNameProperty.Value } else { $null }
         if (-not [string]::IsNullOrWhiteSpace($declaredName) -and $matches.Count -gt 1) {
             throw "Shim name '$declaredName' cannot be used with wildcard target '$target' because it matched multiple files. Omit name to auto-generate shim names."
         }

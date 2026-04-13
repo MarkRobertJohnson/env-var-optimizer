@@ -137,6 +137,7 @@ For project command shims, use `examples/pathopt-commands.manifest.json`.
 ```
 
 When `--manifest` is omitted, the CLI auto-generates one at `.pathopt/manifests/`.
+If the current directory is not writable, default `.pathopt` outputs fall back to `%LOCALAPPDATA%\pathopt`.
 `--bin-dir` defaults to `C:\\Tools\\bin`.
 
 Manifest entries can use wildcard targets to generate one shim per matched file. If the wildcard matches multiple files, omit `name` and shim names are derived from each file name.

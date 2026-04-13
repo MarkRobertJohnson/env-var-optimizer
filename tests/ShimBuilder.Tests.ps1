@@ -1,6 +1,36 @@
 Import-Module (Join-Path $PSScriptRoot '../src/ShimBuilder.psm1') -Force -DisableNameChecking
 
 Describe 'ShimBuilder' {
+    It 'auto-generates a shim name for a single explicit target when name is omitted' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-single-autoname-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+        $targetPath = Join-Path $root 'tools\kdenlive.exe'
+
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
+        'stub' | Set-Content -Path $targetPath -Encoding ASCII
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "target": "$($targetPath.Replace('\', '\\'))",
+      "launcherType": "cmd"
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        $result = Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir
+
+        $result.shimCount | Should Be 1
+        $result.launchers[0].name | Should Be 'kdenlive'
+        (Test-Path -LiteralPath (Join-Path $binDir 'kdenlive.cmd')) | Should Be $true
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
     It 'expands wildcard targets into one shim per matched file' {
         $root = Join-Path $env:TEMP ('pathopt-shim-wildcard-' + [guid]::NewGuid().ToString('N'))
         $toolsDir = Join-Path $root 'tools'
