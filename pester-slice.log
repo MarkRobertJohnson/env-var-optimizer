@@ -1,0 +1,14 @@
+
+
+
+
+
+Describing Cli Help
+ [+] shows root help when no args are provided 1.73s
+ [+] shows command help for analyze --help 150ms
+ [+] shows command help when help token appears after options 62ms
+ [+] routes help command for top-level topics 47ms
+ [+] shows shim help for shim --help 91ms
+ [+] shows shim sync help when requesting subcommand help 34ms
+ [+] routes help shim install through help command 50ms
+ [+] preserves unknown option errors for non-help command invocations 49ms

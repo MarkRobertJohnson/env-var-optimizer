@@ -1,0 +1,23 @@
+
+
+
+
+
+Describing ShimBuilder
+ [-] Error occurred in Describe block 15.92s
+   SessionStateException: A variable with name 'TestDrive' already exists.
+   at New-TestDrive, C:\Program Files\WindowsPowerShell\Modules\Pester\3.4.0\Functions\TestDrive.ps1: line 20
+Tests completed in 15.92s
+Passed: 0 Failed: 1 Skipped: 0 Pending: 0 Inconclusive: 0
+
+TagFilter        : {}
+ExcludeTagFilter : {}
+TestNameFilter   : 
+TotalCount       : 1
+PassedCount      : 0
+FailedCount      : 1
+SkippedCount     : 0
+PendingCount     : 0
+Time             : 00:00:15.9187515
+TestResult       : {@{Describe=ShimBuilder; Context=; Name=Error occurred in Describe block; Result=Failed; Passed=False; Time=00:00:15.9187515; FailureMessage=A variable with name 'TestDrive' already exists.; StackTrace=At C:\Program Files\WindowsPowerShell\Modules\Pester\3.4.0\Functions\TestDrive.ps1:20 char:9; ErrorRecord=A variable with name 'TestDrive' already exists.; ParameterizedSuiteName=; Parameters=}}
+

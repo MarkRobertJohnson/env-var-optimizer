@@ -98,6 +98,34 @@ Describe 'Shim Sync Positional Target' {
         Remove-Item -Recurse -Force -Path $root
     }
 
+    It 'writes an absolute target path into the auto-generated manifest for relative positional targets' {
+        $root = Join-Path $env:TEMP ('pathopt-cli-shim-relative-target-' + [guid]::NewGuid().ToString('N'))
+        $binDir = Join-Path $root 'bin'
+        $targetPath = Join-Path $root 'pathopt.ps1'
+        $didPushLocation = $false
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+        'Write-Output "stub"' | Set-Content -Path $targetPath -Encoding ASCII
+
+        try {
+            Push-Location $root
+            $didPushLocation = $true
+
+            $result = Invoke-PathOptCli -CliArgs @('shim', 'sync', '.\pathopt.ps1', '--bin-dir', $binDir, '--whatif')
+            $manifest = Get-Content -LiteralPath $result.manifestPath -Raw | ConvertFrom-Json
+
+            $manifest.shims.Count | Should Be 1
+            $manifest.shims[0].target | Should Be ([System.IO.Path]::GetFullPath($targetPath))
+        }
+        finally {
+            if ($didPushLocation) {
+                Pop-Location
+            }
+
+            Remove-Item -Recurse -Force -Path $root
+        }
+    }
+
     It 'rejects mixing positional target shorthand with explicit target options' {
         $didThrow = $false
         try {
@@ -144,5 +172,63 @@ Describe 'Shim Sync Positional Target' {
             $env:LOCALAPPDATA = $originalLocalAppData
             Remove-Item -Recurse -Force -Path $root
         }
+    }
+}
+
+Describe 'Shim Sync Command Mode' {
+    It 'shows command-based single-shim usage in shim sync help' {
+        $helpText = (Invoke-PathOptCli -CliArgs @('shim', 'sync', '--help') | Out-String)
+
+        $helpText.Contains('--command <text>') | Should Be $true
+    }
+
+    It 'supports single-shim command input and writes command to the generated manifest' {
+        $root = Join-Path $env:TEMP ('pathopt-cli-shim-command-' + [guid]::NewGuid().ToString('N'))
+        $binDir = Join-Path $root 'bin'
+        $capturePath = Join-Path $root 'capture.ps1'
+        $command = 'pwsh -NoLogo -NoProfile -File "' + $capturePath + '" "alpha beta" "-message=He said ''hi there''"'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+        '@($args) | Out-Null' | Set-Content -Path $capturePath -Encoding ASCII
+
+        try {
+            $result = Invoke-PathOptCli -CliArgs @('shim', 'sync', '--name', 'capturetool', '--command', $command, '--bin-dir', $binDir, '--whatif')
+            $manifest = Get-Content -LiteralPath $result.manifestPath -Raw | ConvertFrom-Json
+
+            $manifest.shims.Count | Should Be 1
+            $manifest.shims[0].name | Should Be 'capturetool'
+            $manifest.shims[0].command | Should Be $command
+            ($manifest.shims[0].PSObject.Properties.Name -contains 'target') | Should Be $false
+        }
+        finally {
+            Remove-Item -Recurse -Force -Path $root
+        }
+    }
+
+    It 'rejects combining --command with --target in single-shim mode' {
+        $didThrow = $false
+        try {
+            Invoke-PathOptCli -CliArgs @('shim', 'sync', '--name', 'capturetool', '--target', 'C:\tools\capture.ps1', '--command', 'pwsh -NoLogo -NoProfile') | Out-Null
+        }
+        catch {
+            $didThrow = $true
+            $_.Exception.Message.Contains('--target or --command') | Should Be $true
+        }
+
+        $didThrow | Should Be $true
+    }
+
+    It 'requires --name when using --command in single-shim mode' {
+        $didThrow = $false
+        try {
+            Invoke-PathOptCli -CliArgs @('shim', 'sync', '--command', 'pwsh -NoLogo -NoProfile') | Out-Null
+        }
+        catch {
+            $didThrow = $true
+            $_.Exception.Message.Contains('--name') | Should Be $true
+            $_.Exception.Message.Contains('--command') | Should Be $true
+        }
+
+        $didThrow | Should Be $true
     }
 }

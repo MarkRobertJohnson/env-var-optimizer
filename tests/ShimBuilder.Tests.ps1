@@ -251,6 +251,106 @@ Describe 'ShimBuilder' {
         Remove-Item -Recurse -Force -Path $root
     }
 
+    It 'resolves relative manifest targets to absolute launcher targets' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-relative-target-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+        $targetPath = Join-Path $root 'tools\run.ps1'
+
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
+        'Write-Output "stub"' | Set-Content -Path $targetPath -Encoding ASCII
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "runtool",
+      "target": "tools\\run.ps1",
+      "launcherType": "cmd+ps1"
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        $result = Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir
+        $expectedTarget = [System.IO.Path]::GetFullPath($targetPath)
+
+        $result.launchers.Count | Should Be 2
+        @($result.launchers | Select-Object -ExpandProperty target | Select-Object -Unique).Count | Should Be 1
+        $result.launchers[0].target | Should Be $expectedTarget
+        $result.launchers[1].target | Should Be $expectedTarget
+
+        $cmdContent = Get-Content -LiteralPath (Join-Path $binDir 'runtool.cmd') -Raw
+        $ps1Content = Get-Content -LiteralPath (Join-Path $binDir 'runtool.ps1') -Raw
+        $cmdContent.Contains($expectedTarget) | Should Be $false
+        $ps1Content.Contains($expectedTarget) | Should Be $true
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'embeds opt-in diagnostics in generated ps1 launchers' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-debug-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "envrefresh",
+      "target": "C:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "ps1",
+      "args": {
+        "lockedPositional": ["refresh"]
+      }
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+
+        $ps1Content = Get-Content -LiteralPath (Join-Path $binDir 'envrefresh.ps1') -Raw
+        $ps1Content.Contains('PATHOPT_SHIM_DEBUG') | Should Be $true
+        $ps1Content.Contains('Write-Host "[pathopt shim debug]') | Should Be $true
+        $ps1Content.Contains('finalArgs') | Should Be $true
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
+    It 'does not inject null fixed arguments for target-only ps1 shims' {
+        $root = Join-Path $env:TEMP ('pathopt-shim-no-null-fixedargs-' + [guid]::NewGuid().ToString('N'))
+        $manifestPath = Join-Path $root 'manifest.json'
+        $binDir = Join-Path $root 'bin'
+
+        New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        @"
+{
+  "version": 1,
+  "shims": [
+    {
+      "name": "pathopt",
+      "target": "C:\\dev\\env-var-optimizer\\pathopt.ps1",
+      "launcherType": "ps1"
+    }
+  ]
+}
+"@ | Set-Content -Path $manifestPath -Encoding ASCII
+
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+
+        $ps1Content = Get-Content -LiteralPath (Join-Path $binDir 'pathopt.ps1') -Raw
+        $ps1Content.Contains('"fixedArguments":[]') | Should Be $true
+        $ps1Content.Contains('"fixedArguments":[null]') | Should Be $false
+
+        Remove-Item -Recurse -Force -Path $root
+    }
+
     It 'marks existing launchers as unchanged when content is identical' {
         $root = Join-Path $env:TEMP ('pathopt-shim-unchanged-' + [guid]::NewGuid().ToString('N'))
         $manifestPath = Join-Path $root 'manifest.json'
@@ -403,4 +503,125 @@ Describe 'ShimBuilder' {
 
         Remove-Item -Recurse -Force -Path $root
     }
+
+  It 'creates command-based shims and preserves quoted fixed arguments' {
+    $root = Join-Path $env:TEMP ('pathopt-shim-command-' + [guid]::NewGuid().ToString('N'))
+    $manifestPath = Join-Path $root 'manifest.json'
+    $binDir = Join-Path $root 'bin'
+    $capturePath = Join-Path $root 'capture.ps1'
+    $outputPath = Join-Path $root 'captured.json'
+    $command = 'pwsh -NoLogo -NoProfile -File "' + $capturePath + '" "' + $outputPath + '" "alpha beta" "-message=He said ''hi there''"'
+
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+    @'
+$outputPath = $args[0]
+$capturedArgs = if ($args.Count -gt 1) { @($args[1..($args.Count - 1)]) } else { @() }
+
+[pscustomobject]@{
+  args = $capturedArgs
+} | ConvertTo-Json -Compress -Depth 8 | Set-Content -LiteralPath $outputPath -Encoding ASCII
+'@ | Set-Content -Path $capturePath -Encoding ASCII
+
+    [pscustomobject]@{
+      version = 1
+      shims = @(
+        [pscustomobject]@{
+          name = 'capturetool'
+          command = $command
+          launcherType = 'cmd+ps1'
+        }
+      )
+    } | ConvertTo-Json -Depth 16 | Set-Content -Path $manifestPath -Encoding UTF8
+
+    try {
+      $result = Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir
+      $result.shimCount | Should Be 1
+      (Test-Path -LiteralPath (Join-Path $binDir 'capturetool.ps1')) | Should Be $true
+      (Test-Path -LiteralPath (Join-Path $binDir 'capturetool.cmd')) | Should Be $true
+
+      & (Join-Path $binDir 'capturetool.ps1') 'tail value' '--flag'
+
+      $payload = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
+      @($payload.args).Count | Should Be 4
+      $payload.args[0] | Should Be 'alpha beta'
+      $payload.args[1] | Should Be "-message=He said 'hi there'"
+      $payload.args[2] | Should Be 'tail value'
+      $payload.args[3] | Should Be '--flag'
+    }
+    finally {
+      Remove-Item -Recurse -Force -Path $root
+    }
+  }
+
+  It 'rejects command-based shims without an explicit name' {
+    $root = Join-Path $env:TEMP ('pathopt-shim-command-noname-' + [guid]::NewGuid().ToString('N'))
+    $manifestPath = Join-Path $root 'manifest.json'
+    $binDir = Join-Path $root 'bin'
+
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+    [pscustomobject]@{
+      version = 1
+      shims = @(
+        [pscustomobject]@{
+          command = 'pwsh -NoLogo -NoProfile'
+          launcherType = 'cmd+ps1'
+        }
+      )
+    } | ConvertTo-Json -Depth 16 | Set-Content -Path $manifestPath -Encoding UTF8
+
+    try {
+      $didThrow = $false
+      try {
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+      }
+      catch {
+        $didThrow = $true
+        $_.Exception.Message.Contains('explicit name') | Should Be $true
+        $_.Exception.Message.Contains('command') | Should Be $true
+      }
+
+      $didThrow | Should Be $true
+    }
+    finally {
+      Remove-Item -Recurse -Force -Path $root
+    }
+  }
+
+  It 'rejects command-based shims with cmd launcher type' {
+    $root = Join-Path $env:TEMP ('pathopt-shim-command-cmd-' + [guid]::NewGuid().ToString('N'))
+    $manifestPath = Join-Path $root 'manifest.json'
+    $binDir = Join-Path $root 'bin'
+
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+    [pscustomobject]@{
+      version = 1
+      shims = @(
+        [pscustomobject]@{
+          name = 'capturetool'
+          command = 'pwsh -NoLogo -NoProfile'
+          launcherType = 'cmd'
+        }
+      )
+    } | ConvertTo-Json -Depth 16 | Set-Content -Path $manifestPath -Encoding UTF8
+
+    try {
+      $didThrow = $false
+      try {
+        Sync-PathShims -ManifestPath $manifestPath -BinDir $binDir | Out-Null
+      }
+      catch {
+        $didThrow = $true
+        $_.Exception.Message.Contains('launcherType') | Should Be $true
+        $_.Exception.Message.Contains('cmd+ps1') | Should Be $true
+      }
+
+      $didThrow | Should Be $true
+    }
+    finally {
+      Remove-Item -Recurse -Force -Path $root
+    }
+  }
 }

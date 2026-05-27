@@ -204,10 +204,26 @@ function New-ResolvedShimDefinition {
         $resolved['target'] = $Target
     }
 
-    $resolved['fixedArguments'] = @($FixedArguments)
+    $resolved['fixedArguments'] = @($FixedArguments | Where-Object { $null -ne $_ })
     $resolved['sourceKey'] = $SourceKey
 
     return [pscustomobject]$resolved
+}
+
+function Resolve-ShimTargetPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Target,
+        [Parameter(Mandatory)]
+        [string]$BasePath
+    )
+
+    if ([System.IO.Path]::IsPathRooted($Target)) {
+        return [System.IO.Path]::GetFullPath($Target)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $BasePath $Target))
 }
 
 function Get-ShimSourceKey {
@@ -347,33 +363,23 @@ function Read-ShimManifest {
         }
 
         if (-not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($target)) {
-            if ([string]::IsNullOrWhiteSpace($declaredName)) {
-                $resolvedTarget = if ([System.IO.Path]::IsPathRooted($target)) {
-                    $target
-                }
-                else {
-                    Join-Path $manifestDir $target
-                }
+            $resolvedTarget = Resolve-ShimTargetPath -Target $target -BasePath $manifestDir
 
+            if ([string]::IsNullOrWhiteSpace($declaredName)) {
                 $inferredName = [System.IO.Path]::GetFileNameWithoutExtension($resolvedTarget)
                 if ([string]::IsNullOrWhiteSpace($inferredName)) {
                     throw "Shim target '$target' requires an explicit name because a name could not be inferred from the path."
                 }
 
-                $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $inferredName -Target $target -FixedArguments @() -SourceKey $target
+                $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $inferredName -Target $resolvedTarget -FixedArguments @() -SourceKey $resolvedTarget
                 continue
             }
 
-            $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $declaredName -Target $target -FixedArguments @() -SourceKey $target
+            $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $declaredName -Target $resolvedTarget -FixedArguments @() -SourceKey $resolvedTarget
             continue
         }
 
-        $targetPattern = if ([System.IO.Path]::IsPathRooted($target)) {
-            $target
-        }
-        else {
-            Join-Path $manifestDir $target
-        }
+        $targetPattern = Resolve-ShimTargetPath -Target $target -BasePath $manifestDir
 
         $matches = @(Get-ChildItem -Path $targetPattern -File -ErrorAction SilentlyContinue | Sort-Object -Property FullName)
         if ($matches.Count -eq 0) {
@@ -469,11 +475,13 @@ function Get-Ps1LauncherContent {
         [string[]]$FixedArguments = @()
     )
 
+    $normalizedFixedArguments = @($FixedArguments | Where-Object { $null -ne $_ })
+
     $policyJson = [pscustomobject]@{
         lockedPositional = @($ArgumentPolicy.lockedPositional)
         defaults         = [pscustomobject]$ArgumentPolicy.defaults
         lockedOptions    = [pscustomobject]$ArgumentPolicy.lockedOptions
-        fixedArguments   = @($FixedArguments)
+        fixedArguments   = $normalizedFixedArguments
         allowPositionalTail = [bool]$ArgumentPolicy.allowPositionalTail
     } | ConvertTo-Json -Compress -Depth 8
     $escapedPolicyJson = $policyJson.Replace("'", "''")
@@ -484,6 +492,48 @@ Set-StrictMode -Version Latest
 
 `$policy = '$escapedPolicyJson' | ConvertFrom-Json
 `$userArgs = @(`$args)
+
+function Test-ShimDebugEnabled {
+    [CmdletBinding()]
+    param(
+        [string]`$Value
+    )
+
+    if ([string]::IsNullOrWhiteSpace(`$Value)) {
+        return `$false
+    }
+
+    switch (`$Value.Trim().ToLowerInvariant()) {
+        '0' { return `$false }
+        'false' { return `$false }
+        'no' { return `$false }
+        'off' { return `$false }
+        default { return `$true }
+    }
+}
+
+function ConvertTo-ShimDebugJson {
+    [CmdletBinding()]
+    param(
+        `$Value
+    )
+
+    return (`$Value | ConvertTo-Json -Compress -Depth 8)
+}
+
+`$script:shimDebugEnabled = Test-ShimDebugEnabled -Value ([Environment]::GetEnvironmentVariable('PATHOPT_SHIM_DEBUG'))
+
+function Write-ShimDebugMessage {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]`$Message
+    )
+
+    if (`$script:shimDebugEnabled) {
+        Write-Host "[pathopt shim debug] `$Message"
+    }
+}
 
 function Get-UserOptionMap {
     [CmdletBinding()]
@@ -593,12 +643,27 @@ if (`$null -ne `$policy.defaults) {
 `$finalArgs += `$userArgs
 `$finalArgs += `$defaultPairs
 
-& "$Target" @finalArgs
-`$lastExitCodeVariable = Get-Variable -Name LASTEXITCODE -ErrorAction SilentlyContinue
-if (`$null -ne `$lastExitCodeVariable) {
-    exit [int]`$lastExitCodeVariable.Value
+Write-ShimDebugMessage "shim=`$PSCommandPath"
+Write-ShimDebugMessage "cwd=`$((Get-Location).Path)"
+Write-ShimDebugMessage "target=$Target"
+Write-ShimDebugMessage "policy=`$(ConvertTo-ShimDebugJson -Value `$policy)"
+Write-ShimDebugMessage "userArgs=`$(ConvertTo-ShimDebugJson -Value `$userArgs)"
+Write-ShimDebugMessage "finalArgs=`$(ConvertTo-ShimDebugJson -Value `$finalArgs)"
+
+try {
+    & "$Target" @finalArgs
+    `$lastExitCodeVariable = Get-Variable -Name LASTEXITCODE -ErrorAction SilentlyContinue
+    if (`$null -ne `$lastExitCodeVariable) {
+        Write-ShimDebugMessage "exitCode=`$([int]`$lastExitCodeVariable.Value)"
+        exit [int]`$lastExitCodeVariable.Value
+    }
+}
+catch {
+    Write-ShimDebugMessage "exception=`$(`$_.Exception.Message)"
+    throw
 }
 
+Write-ShimDebugMessage 'exitCode=0'
 exit 0
 "@
 }

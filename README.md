@@ -142,6 +142,7 @@ For project command shims, use `examples/pathopt-commands.manifest.json`.
 When `--manifest` is omitted, the CLI auto-generates one at `.pathopt/manifests/`.
 If the current directory is not writable, default `.pathopt` outputs fall back to `%LOCALAPPDATA%\pathopt`.
 `--bin-dir` defaults to `C:\\Tools\\bin`.
+Single-shim targets are normalized to absolute paths before the generated manifest is written.
 
 Manifest entries can use wildcard targets to generate one shim per matched file. If the wildcard matches multiple files, omit `name` and shim names are derived from each file name.
 
@@ -160,6 +161,7 @@ Manifest entries can also use `command` instead of `target` when the shim should
 ```
 
 Command-based shims require `launcherType: "ps1"` or `launcherType: "cmd+ps1"` so the generated PowerShell launcher can preserve the parsed fixed arguments.
+Generated `.ps1` shims also support opt-in diagnostics: set `PATHOPT_SHIM_DEBUG=1` before invoking the shim to print the resolved target, working directory, user arguments, final arguments, and exit information.
 
 Quote the whole `--command` value once at the shell level. Inner quoted segments are preserved as single arguments.
 

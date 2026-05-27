@@ -772,6 +772,10 @@ function Invoke-ShimCommand {
             $shimTarget = $positionalTarget
         }
 
+        if (-not [string]::IsNullOrWhiteSpace($shimTarget)) {
+            $shimTarget = [System.IO.Path]::GetFullPath($shimTarget)
+        }
+
         if (-not [string]::IsNullOrWhiteSpace($shimCommand) -and [string]::IsNullOrWhiteSpace($shimName)) {
             throw 'shim sync requires --name when using --command.'
         }
