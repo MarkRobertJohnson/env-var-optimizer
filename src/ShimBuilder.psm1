@@ -98,6 +98,143 @@ function Test-HasShimArgumentPolicy {
     return (@($Policy.lockedPositional).Count -gt 0) -or (@($Policy.defaults.Keys).Count -gt 0) -or (@($Policy.lockedOptions.Keys).Count -gt 0) -or [bool]$Policy.allowPositionalTail
 }
 
+function Copy-ShimDefinitionProperties {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$Shim
+    )
+
+    $copied = [ordered]@{}
+    foreach ($property in $Shim.PSObject.Properties) {
+        $copied[$property.Name] = $property.Value
+    }
+
+    return $copied
+}
+
+function ConvertTo-ShimCommandSpec {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$Command,
+        [string]$ShimName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Command)) {
+        if ([string]::IsNullOrWhiteSpace($ShimName)) {
+            throw 'Shim command cannot be empty.'
+        }
+
+        throw "Shim '$ShimName' has an empty command."
+    }
+
+    $parseErrors = $null
+    $tokens = @([System.Management.Automation.PSParser]::Tokenize($Command, [ref]$parseErrors))
+    if (@($parseErrors).Count -gt 0) {
+        $firstError = @($parseErrors)[0]
+        if ([string]::IsNullOrWhiteSpace($ShimName)) {
+            throw "Invalid shim command '$Command'. $($firstError.Message)"
+        }
+
+        throw "Shim '$ShimName' has invalid command '$Command'. $($firstError.Message)"
+    }
+
+    $commandTokens = @()
+    foreach ($token in $tokens) {
+        $tokenType = [string]$token.Type
+        if ($tokenType -in @('Command', 'CommandArgument', 'CommandParameter', 'String', 'Number')) {
+            $commandTokens += [string]$token.Content
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($ShimName)) {
+            throw "Shim command '$Command' uses unsupported PowerShell syntax near '$($token.Content)'."
+        }
+
+        throw "Shim '$ShimName' command uses unsupported PowerShell syntax near '$($token.Content)'."
+    }
+
+    if (@($commandTokens).Count -eq 0) {
+        if ([string]::IsNullOrWhiteSpace($ShimName)) {
+            throw "Shim command '$Command' did not produce an executable token."
+        }
+
+        throw "Shim '$ShimName' command did not produce an executable token."
+    }
+
+    $target = [string]$commandTokens[0]
+    if ([string]::IsNullOrWhiteSpace($target) -or $target.StartsWith('-')) {
+        if ([string]::IsNullOrWhiteSpace($ShimName)) {
+            throw "Shim command '$Command' must start with an executable or script path."
+        }
+
+        throw "Shim '$ShimName' command must start with an executable or script path."
+    }
+
+    $fixedArguments = @()
+    if (@($commandTokens).Count -gt 1) {
+        $fixedArguments = @($commandTokens[1..(@($commandTokens).Count - 1)])
+    }
+
+    return [pscustomobject]@{
+        target         = $target
+        fixedArguments = $fixedArguments
+    }
+}
+
+function New-ResolvedShimDefinition {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$Shim,
+        [string]$Name,
+        [string]$Target,
+        [string[]]$FixedArguments,
+        [string]$SourceKey
+    )
+
+    $resolved = Copy-ShimDefinitionProperties -Shim $Shim
+
+    if (-not [string]::IsNullOrWhiteSpace($Name)) {
+        $resolved['name'] = $Name
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Target)) {
+        $resolved['target'] = $Target
+    }
+
+    $resolved['fixedArguments'] = @($FixedArguments)
+    $resolved['sourceKey'] = $SourceKey
+
+    return [pscustomobject]$resolved
+}
+
+function Get-ShimSourceKey {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [psobject]$Shim
+    )
+
+    $sourceKeyProperty = $Shim.PSObject.Properties['sourceKey']
+    if ($null -ne $sourceKeyProperty -and -not [string]::IsNullOrWhiteSpace([string]$sourceKeyProperty.Value)) {
+        return [string]$sourceKeyProperty.Value
+    }
+
+    $commandProperty = $Shim.PSObject.Properties['command']
+    if ($null -ne $commandProperty -and -not [string]::IsNullOrWhiteSpace([string]$commandProperty.Value)) {
+        return [string]$commandProperty.Value
+    }
+
+    $targetProperty = $Shim.PSObject.Properties['target']
+    if ($null -ne $targetProperty -and -not [string]::IsNullOrWhiteSpace([string]$targetProperty.Value)) {
+        return [string]$targetProperty.Value
+    }
+
+    return $null
+}
+
 function Get-FileWriteAction {
     [CmdletBinding()]
     param(
@@ -184,7 +321,26 @@ function Read-ShimManifest {
     foreach ($shim in @($manifest.shims)) {
         $declaredNameProperty = $shim.PSObject.Properties['name']
         $declaredName = if ($null -ne $declaredNameProperty) { [string]$declaredNameProperty.Value } else { $null }
-        $target = [string]$shim.target
+        $targetProperty = $shim.PSObject.Properties['target']
+        $commandProperty = $shim.PSObject.Properties['command']
+        $target = if ($null -ne $targetProperty -and $null -ne $targetProperty.Value) { [string]$targetProperty.Value } else { $null }
+        $command = if ($null -ne $commandProperty -and $null -ne $commandProperty.Value) { [string]$commandProperty.Value } else { $null }
+
+        if (-not [string]::IsNullOrWhiteSpace($target) -and -not [string]::IsNullOrWhiteSpace($command)) {
+            $shimLabel = if ([string]::IsNullOrWhiteSpace($declaredName)) { 'Unnamed shim' } else { "Shim '$declaredName'" }
+            throw "$shimLabel must define exactly one of target or command."
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($command)) {
+            if ([string]::IsNullOrWhiteSpace($declaredName)) {
+                throw "Shim command '$command' requires an explicit name."
+            }
+
+            $commandSpec = ConvertTo-ShimCommandSpec -Command $command -ShimName $declaredName
+            $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $declaredName -Target ([string]$commandSpec.target) -FixedArguments @($commandSpec.fixedArguments) -SourceKey $command
+            continue
+        }
+
         if ([string]::IsNullOrWhiteSpace($target)) {
             $expandedShims += $shim
             continue
@@ -204,17 +360,11 @@ function Read-ShimManifest {
                     throw "Shim target '$target' requires an explicit name because a name could not be inferred from the path."
                 }
 
-                $expandedShim = [ordered]@{}
-                foreach ($property in $shim.PSObject.Properties) {
-                    $expandedShim[$property.Name] = $property.Value
-                }
-
-                $expandedShim['name'] = $inferredName
-                $expandedShims += [pscustomobject]$expandedShim
+                $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $inferredName -Target $target -FixedArguments @() -SourceKey $target
                 continue
             }
 
-            $expandedShims += $shim
+            $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $declaredName -Target $target -FixedArguments @() -SourceKey $target
             continue
         }
 
@@ -235,17 +385,8 @@ function Read-ShimManifest {
         }
 
         foreach ($match in $matches) {
-            $expandedShim = [ordered]@{}
-            foreach ($property in $shim.PSObject.Properties) {
-                $expandedShim[$property.Name] = $property.Value
-            }
-
-            if ([string]::IsNullOrWhiteSpace($declaredName)) {
-                $expandedShim['name'] = [System.IO.Path]::GetFileNameWithoutExtension($match.Name)
-            }
-
-            $expandedShim['target'] = $match.FullName
-            $expandedShims += [pscustomobject]$expandedShim
+            $expandedName = if ([string]::IsNullOrWhiteSpace($declaredName)) { [System.IO.Path]::GetFileNameWithoutExtension($match.Name) } else { $declaredName }
+            $expandedShims += New-ResolvedShimDefinition -Shim $shim -Name $expandedName -Target $match.FullName -FixedArguments @() -SourceKey $match.FullName
         }
     }
 
@@ -280,14 +421,17 @@ function Resolve-ShimConflicts {
 
         $name = $group.Name
         if (-not $priorityMap.ContainsKey($name)) {
-            throw "Duplicate shim name '$name' found. Add Manifest.priority.$name with preferred target."
+            throw "Duplicate shim name '$name' found. Add Manifest.priority.$name with the preferred target or command."
         }
 
-        $preferredTarget = $priorityMap[$name]
-        $winner = $group.Group | Where-Object { ([string]$_.target).Equals($preferredTarget, [System.StringComparison]::OrdinalIgnoreCase) } | Select-Object -First 1
+        $preferredSourceKey = $priorityMap[$name]
+        $winner = $group.Group | Where-Object {
+            $sourceKey = Get-ShimSourceKey -Shim $_
+            (-not [string]::IsNullOrWhiteSpace($sourceKey)) -and $sourceKey.Equals($preferredSourceKey, [System.StringComparison]::OrdinalIgnoreCase)
+        } | Select-Object -First 1
 
         if ($null -eq $winner) {
-            throw "Priority target '$preferredTarget' for shim '$name' does not match any duplicate entries."
+            throw "Priority value '$preferredSourceKey' for shim '$name' does not match any duplicate entries."
         }
 
         $resolved += $winner
@@ -321,13 +465,15 @@ function Get-Ps1LauncherContent {
         [Parameter(Mandatory)]
         [string]$Target,
         [Parameter(Mandatory)]
-        [psobject]$ArgumentPolicy
+        [psobject]$ArgumentPolicy,
+        [string[]]$FixedArguments = @()
     )
 
     $policyJson = [pscustomobject]@{
         lockedPositional = @($ArgumentPolicy.lockedPositional)
         defaults         = [pscustomobject]$ArgumentPolicy.defaults
         lockedOptions    = [pscustomobject]$ArgumentPolicy.lockedOptions
+        fixedArguments   = @($FixedArguments)
         allowPositionalTail = [bool]$ArgumentPolicy.allowPositionalTail
     } | ConvertTo-Json -Compress -Depth 8
     $escapedPolicyJson = $policyJson.Replace("'", "''")
@@ -442,6 +588,7 @@ if (`$null -ne `$policy.defaults) {
 
 `$finalArgs = @()
 `$finalArgs += @(`$policy.lockedPositional)
+`$finalArgs += @(`$policy.fixedArguments)
 `$finalArgs += `$lockedOptionPairs
 `$finalArgs += `$userArgs
 `$finalArgs += `$defaultPairs
@@ -475,7 +622,12 @@ function Sync-PathShims {
     $results = @()
     foreach ($shim in $shims) {
         $name = [string]$shim.name
-        $target = [string]$shim.target
+        $targetProperty = $shim.PSObject.Properties['target']
+        $commandProperty = $shim.PSObject.Properties['command']
+        $fixedArgumentsProperty = $shim.PSObject.Properties['fixedArguments']
+        $target = if ($null -ne $targetProperty -and $null -ne $targetProperty.Value) { [string]$targetProperty.Value } else { $null }
+        $isCommandShim = ($null -ne $commandProperty -and -not [string]::IsNullOrWhiteSpace([string]$commandProperty.Value))
+        $fixedArguments = if ($null -ne $fixedArgumentsProperty -and $null -ne $fixedArgumentsProperty.Value) { @($fixedArgumentsProperty.Value | ForEach-Object { [string]$_ }) } else { @() }
         $launcherType = if ([string]::IsNullOrWhiteSpace([string]$shim.launcherType)) { 'cmd' } else { [string]$shim.launcherType }
         $argumentPolicy = ConvertTo-ShimArgumentPolicy -Shim $shim
         $hasArgumentPolicy = Test-HasShimArgumentPolicy -Policy $argumentPolicy
@@ -490,6 +642,10 @@ function Sync-PathShims {
 
         if ($launcherType -notin @('cmd', 'cmd+ps1', 'ps1')) {
             throw "Shim '$name' has unsupported launcherType '$launcherType'. Use 'cmd', 'ps1', or 'cmd+ps1'."
+        }
+
+        if ($isCommandShim -and $launcherType -eq 'cmd') {
+            throw "Shim '$name' uses command and must set launcherType to 'ps1' or 'cmd+ps1'."
         }
 
         if ($hasArgumentPolicy -and $launcherType -eq 'cmd') {
@@ -519,7 +675,7 @@ function Sync-PathShims {
         }
 
         if ($launcherType -in @('ps1', 'cmd+ps1')) {
-            $ps1Content = Get-Ps1LauncherContent -Target $target -ArgumentPolicy $argumentPolicy
+            $ps1Content = Get-Ps1LauncherContent -Target $target -ArgumentPolicy $argumentPolicy -FixedArguments $fixedArguments
             $ps1Action = Get-FileWriteAction -Path $ps1Path -Content $ps1Content
 
             if (-not $WhatIf -and $ps1Action -ne 'unchanged') {

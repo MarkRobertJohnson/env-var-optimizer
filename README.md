@@ -21,7 +21,7 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
 ./pathopt.ps1 rollback --snapshot <file> [--whatif]
 ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]
 ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]
-./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]
+./pathopt.ps1 shim sync [--manifest <file> | --name <shim> (--target <path> | --command <text>) [--launcher-type cmd|ps1|cmd+ps1] | <target>] [--bin-dir <dir>] [--whatif]
 ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]
 ./pathopt.ps1 doctor [--json] [--out <file>]
 ```
@@ -134,6 +134,9 @@ For project command shims, use `examples/pathopt-commands.manifest.json`.
 
 # Or create a single shim without authoring a manifest first
 ./pathopt.ps1 shim sync --name gitdocgen --target C:\dev\docs-from-commits\tools\generate-change-summaries.ps1
+
+# Or create a shim from an executable plus fixed arguments
+./pathopt.ps1 shim sync --name structurizr --command "java -jar C:\dev\structurizr_src\structurizr-application\target\structurizr-1.0.0.war"
 ```
 
 When `--manifest` is omitted, the CLI auto-generates one at `.pathopt/manifests/`.
@@ -141,6 +144,8 @@ If the current directory is not writable, default `.pathopt` outputs fall back t
 `--bin-dir` defaults to `C:\\Tools\\bin`.
 
 Manifest entries can use wildcard targets to generate one shim per matched file. If the wildcard matches multiple files, omit `name` and shim names are derived from each file name.
+
+Manifest entries can also use `command` instead of `target` when the shim should run a fixed executable plus arguments.
 
 ```json
 {
@@ -152,6 +157,15 @@ Manifest entries can use wildcard targets to generate one shim per matched file.
     }
   ]
 }
+```
+
+Command-based shims require `launcherType: "ps1"` or `launcherType: "cmd+ps1"` so the generated PowerShell launcher can preserve the parsed fixed arguments.
+
+Quote the whole `--command` value once at the shell level. Inner quoted segments are preserved as single arguments.
+
+```powershell
+./pathopt.ps1 shim sync --name structurizr --command "java -jar \"C:\Program Files\Structurizr\structurizr.war\""
+./pathopt.ps1 shim sync --name greet --command 'pwsh -NoLogo -NoProfile -Command "Write-Host ''hello world''"'
 ```
 
 ### Install Project Command Shims (Idempotent)
@@ -218,6 +232,16 @@ Example behavior for `envrefresh`:
 - `envrefresh --whatif` -> runs `pathopt.ps1 refresh --whatif --scope path`
 - `envrefresh --scope all` -> runs `pathopt.ps1 refresh --scope all` (default is overridable)
 - `envrefresh plan` -> fails because `refresh` is locked and positional overrides are blocked
+
+Example command-based manifest entry:
+
+```json
+{
+  "name": "structurizr",
+  "command": "java -jar \"C:\\dev\\structurizr_src\\structurizr-application\\target\\structurizr-1.0.0.war\"",
+  "launcherType": "cmd+ps1"
+}
+```
 
 ## Tests
 

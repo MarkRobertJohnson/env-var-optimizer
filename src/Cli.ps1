@@ -164,7 +164,7 @@ function Show-PathOptRootHelp {
         '  ./pathopt.ps1 rollback --snapshot <file> [--whatif]',
         '  ./pathopt.ps1 add <path> [--scope user|machine] [--position prepend|append] [--force] [--whatif]',
         '  ./pathopt.ps1 refresh [--scope path|all|<name>] [--whatif]',
-        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1]] [--bin-dir <dir>] [--whatif]',
+        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> (--target <path> | --command <text>) [--launcher-type cmd|ps1|cmd+ps1] | <target>] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 shim install [--manifest <file>] [--state <file>] [--bin-dir <dir>] [--whatif]',
         '  ./pathopt.ps1 doctor [--json] [--out <file>]',
         '',
@@ -350,7 +350,7 @@ function Show-ShimHelp {
         '  ./pathopt.ps1 shim install [options]',
         '',
         'Subcommands:',
-        '  sync                   Build/update shims from a manifest or single name+target pair.',
+        '  sync                   Build/update shims from a manifest or a single shim definition.',
         '  install                Idempotent install using a full command manifest and state file.',
         '',
         'Help:',
@@ -368,23 +368,25 @@ function Show-ShimSyncHelp {
     $lines = @(
         'Command: shim sync',
         'What it does:',
-        '  Generates launcher shims directly from a manifest, --name/--target input, or a positional target/glob.',
+        '  Generates launcher shims directly from a manifest, --name plus --target/--command input, or a positional target/glob.',
         '',
         'Usage:',
-        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> --target <path> [--launcher-type cmd|ps1|cmd+ps1] | <target>] [--bin-dir <dir>] [--whatif]',
+        '  ./pathopt.ps1 shim sync [--manifest <file> | --name <shim> (--target <path> | --command <text>) [--launcher-type cmd|ps1|cmd+ps1] | <target>] [--bin-dir <dir>] [--whatif]',
         '',
         'Arguments:',
         '  --manifest <file>      Manifest path containing one or more shim definitions.',
         '  --name <shim>          Shim name for single-shim mode.',
         '  --target <path>        Target executable/script for single-shim mode.',
+        '  --command <text>       Command line to tokenize into an executable plus fixed arguments. Quote the whole value as one argument.',
         '  --launcher-type <v>    cmd, ps1, or cmd+ps1 (default: cmd+ps1 in single-shim mode).',
         '  --bin-dir <dir>        Launcher output directory (default: C:\\Tools\\bin).',
         '  --whatif               Preview generated/updated launchers.',
         '  <target>               Positional shorthand target path or wildcard glob (for example: tools\\*.bat).',
         '',
         'Notes:',
-        '  Use either --manifest OR (--name + --target) OR positional <target>.',
+        '  Use either --manifest OR (--name + (--target | --command)) OR positional <target>.',
         '  In manifest mode, target supports wildcards (for example: tools\\*.bat).',
+        '  Command-based shims require a PowerShell-backed launcher (ps1 or cmd+ps1).',
         '  If wildcard target matches multiple files, omit name to auto-generate shim names from file names.',
         '',
         'Manifest JSON example:',
@@ -403,6 +405,7 @@ function Show-ShimSyncHelp {
         '  ./pathopt.ps1 shim sync --manifest examples/shim-manifest.sample.json',
         '  ./pathopt.ps1 shim sync --name envrefresh --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --launcher-type ps1',
         '  ./pathopt.ps1 shim sync --name pathdoctor --target D:\\dev\\env-var-optimizer\\pathopt.ps1 --whatif',
+            '  ./pathopt.ps1 shim sync --name structurizr --command "java -jar C:\\dev\\structurizr_src\\structurizr-application\\target\\structurizr-1.0.0.war"',
         '  ./pathopt.ps1 shim sync C:\\Users\\you\\AppData\\Local\\miniconda3\\condabin\\*.bat'
     )
 
@@ -683,7 +686,7 @@ function Invoke-ShimCommand {
     if ($subCommand -eq 'install') {
         $manifestPath = $null
         $statePath = $null
-        $binDir = 'C:\\Tools\\bin'
+        $binDir = 'C:\Tools\bin'
         $whatIf = $false
 
         for ($i = 1; $i -lt $Args.Count; $i++) {
@@ -714,9 +717,10 @@ function Invoke-ShimCommand {
     $manifestPath = $null
     $shimName = $null
     $shimTarget = $null
+    $shimCommand = $null
     $positionalTarget = $null
     $launcherType = 'cmd+ps1'
-    $binDir = 'C:\\Tools\\bin'
+    $binDir = 'C:\Tools\bin'
     $whatIf = $false
 
     for ($i = 1; $i -lt $Args.Count; $i++) {
@@ -724,6 +728,7 @@ function Invoke-ShimCommand {
             '--manifest' { $manifestPath = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--manifest' }
             '--name' { $shimName = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--name' }
             '--target' { $shimTarget = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--target' }
+            '--command' { $shimCommand = Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--command' }
             '--launcher-type' {
                 $launcherType = (Get-RequiredOptionValue -Args $Args -Index ([ref]$i) -OptionName '--launcher-type').ToLowerInvariant()
                 if ($launcherType -notin @('cmd', 'ps1', 'cmd+ps1')) {
@@ -746,12 +751,20 @@ function Invoke-ShimCommand {
         }
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($manifestPath) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget) -or -not [string]::IsNullOrWhiteSpace($positionalTarget))) {
-        throw 'Specify either --manifest or (--name and --target) or a positional <target>, not both.'
+    if (-not [string]::IsNullOrWhiteSpace($shimTarget) -and -not [string]::IsNullOrWhiteSpace($shimCommand)) {
+        throw 'Specify either --target or --command for single-shim mode, not both.'
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($positionalTarget) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget))) {
-        throw 'Use either positional <target> shorthand or --name/--target options, not both.'
+    if (-not [string]::IsNullOrWhiteSpace($manifestPath) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget) -or -not [string]::IsNullOrWhiteSpace($shimCommand) -or -not [string]::IsNullOrWhiteSpace($positionalTarget))) {
+        throw 'Specify either --manifest or (--name and --target/--command) or a positional <target>, not both.'
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($positionalTarget) -and (-not [string]::IsNullOrWhiteSpace($shimName) -or -not [string]::IsNullOrWhiteSpace($shimTarget) -or -not [string]::IsNullOrWhiteSpace($shimCommand))) {
+        if ([string]::IsNullOrWhiteSpace($shimCommand)) {
+            throw 'Use either positional <target> shorthand or --name/--target options, not both.'
+        }
+
+        throw 'Use either positional <target> shorthand or --name with --target/--command, not both.'
     }
 
     if ([string]::IsNullOrWhiteSpace($manifestPath)) {
@@ -759,11 +772,16 @@ function Invoke-ShimCommand {
             $shimTarget = $positionalTarget
         }
 
-        $isNamedSingleShim = (-not [string]::IsNullOrWhiteSpace($shimName) -and -not [string]::IsNullOrWhiteSpace($shimTarget))
+        if (-not [string]::IsNullOrWhiteSpace($shimCommand) -and [string]::IsNullOrWhiteSpace($shimName)) {
+            throw 'shim sync requires --name when using --command.'
+        }
+
+        $isNamedSingleTargetShim = (-not [string]::IsNullOrWhiteSpace($shimName) -and -not [string]::IsNullOrWhiteSpace($shimTarget))
+        $isNamedSingleCommandShim = (-not [string]::IsNullOrWhiteSpace($shimName) -and -not [string]::IsNullOrWhiteSpace($shimCommand))
         $isPositionalShortcut = (-not [string]::IsNullOrWhiteSpace($shimTarget) -and [string]::IsNullOrWhiteSpace($shimName))
 
-        if (-not $isNamedSingleShim -and -not $isPositionalShortcut) {
-            throw 'shim sync requires either --manifest <file>, --name <shim> --target <path>, or positional <target>. '
+        if (-not $isNamedSingleTargetShim -and -not $isNamedSingleCommandShim -and -not $isPositionalShortcut) {
+            throw 'shim sync requires either --manifest <file>, --name <shim> with --target <path> or --command <text>, or positional <target>. '
         }
 
         $generatedManifestDir = Get-PathOptDefaultPath -ChildPath 'manifests'
@@ -779,6 +797,13 @@ function Invoke-ShimCommand {
                 if ($isPositionalShortcut) {
                     [pscustomobject]@{
                         target       = $shimTarget
+                        launcherType = $launcherType
+                    }
+                }
+                elseif ($isNamedSingleCommandShim) {
+                    [pscustomobject]@{
+                        name         = $shimName
+                        command      = $shimCommand
                         launcherType = $launcherType
                     }
                 }

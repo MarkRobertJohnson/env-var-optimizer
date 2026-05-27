@@ -20,6 +20,11 @@
       "launcherType": "cmd+ps1"
     },
     {
+      "name": "structurizr",
+      "command": "java -jar \"C:\\dev\\structurizr_src\\structurizr-application\\target\\structurizr-1.0.0.war\"",
+      "launcherType": "cmd+ps1"
+    },
+    {
       "name": "envrefresh",
       "target": "D:\\dev\\env-var-optimizer\\pathopt.ps1",
       "launcherType": "ps1",
