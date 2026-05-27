@@ -156,7 +156,7 @@ Chosen defaults (locked):
 1. Analyze on real registry values without mutation.
 2. Apply with `--whatif` emits write intent only.
 3. Apply then verify registry values changed as planned.
-4. Rollback restores exact prior values.
+4. Rollback restores snapshot values while retaining newer PATH entries that were added afterward.
 5. Shim sync creates launchers and resolves target executables.
 6. Collision detection emits actionable conflict list.
 

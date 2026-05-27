@@ -240,7 +240,7 @@ function Show-ApplyHelp {
     $lines = @(
         'Command: apply',
         'What it does:',
-        '  Applies a previously generated plan and writes a rollback snapshot first.',
+        '  Applies a previously generated plan, snapshots the current state first, then snapshots the applied known-good state.',
         '',
         'Usage:',
         '  ./pathopt.ps1 apply --plan <file> [--backup-dir <dir>] [--whatif]',
@@ -266,7 +266,7 @@ function Show-RollbackHelp {
     $lines = @(
         'Command: rollback',
         'What it does:',
-        '  Restores PATH values from a snapshot captured during apply.',
+        '  Restores PATH values from a snapshot captured during apply while keeping newer PATH entries added since then.',
         '',
         'Usage:',
         '  ./pathopt.ps1 rollback --snapshot <file> [--whatif]',

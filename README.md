@@ -9,7 +9,7 @@ PowerShell CLI to audit, plan, and safely apply PATH optimizations across `User`
   - duplicate removal
   - missing-entry quarantine
   - shared-path consolidation to `Machine`
-- Apply plans with pre-change snapshots and rollback support.
+- Apply plans with pre-change snapshots, post-apply known-good snapshots, and rollback support.
 - Build manifest-driven shim launchers in `C:\\Tools\\bin`.
 
 ## Commands
@@ -118,11 +118,15 @@ The command also detects duplicate paths and skips them automatically.
 ./pathopt.ps1 apply --plan .pathopt/plans/plan.json
 ```
 
+Each real apply now writes two snapshots into the backup directory: one before any PATH changes and one immediately after the plan is applied. The post-apply snapshot is the known-good state you can return to later.
+
 5. If needed, rollback:
 
 ```powershell
 ./pathopt.ps1 rollback --snapshot .pathopt/backups/path-snapshot-YYYYMMDD-HHMMSS.json
 ```
+
+Rollback restores the chosen snapshot and then appends PATH entries that were added after that snapshot was captured, keeping those newer entries in their current scope so recent tool installs are not discarded.
 
 ## Shim Manifest
 
@@ -256,4 +260,5 @@ Invoke-Pester -Path ./tests
 - Writes use .NET environment APIs, not `setx`.
 - Machine PATH updates require elevation.
 - Open new shells after apply or rollback.
+- Rollback keeps newer PATH entries that were added after the selected snapshot.
 - `refresh` updates the current process only; it does not write registry values.

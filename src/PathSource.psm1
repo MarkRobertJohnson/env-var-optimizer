@@ -108,21 +108,39 @@ function New-PathSnapshot {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]$Directory
+        [string]$Directory,
+        [ValidateSet('manual', 'pre-apply', 'post-apply')]
+        [string]$Reason = 'manual',
+        [string]$PlanPath,
+        [string]$PlanHash
     )
 
     New-Item -ItemType Directory -Force -Path $Directory | Out-Null
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
     $filePath = Join-Path $Directory ("path-snapshot-$timestamp.json")
+    $suffix = 1
+    while (Test-Path -LiteralPath $filePath -PathType Leaf) {
+        $filePath = Join-Path $Directory ("path-snapshot-$timestamp-$suffix.json")
+        $suffix++
+    }
 
     $snapshot = [pscustomobject]@{
-        version      = 1
+        version      = 2
         generatedAt  = (Get-Date).ToUniversalTime().ToString('o')
+        reason       = $Reason
         computerName = $env:COMPUTERNAME
         currentUser  = [Security.Principal.WindowsIdentity]::GetCurrent().Name
         userPath     = Get-PathValue -Scope User
         machinePath  = Get-PathValue -Scope Machine
         processPath  = Get-PathValue -Scope Process
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PlanPath)) {
+        $snapshot | Add-Member -NotePropertyName planPath -NotePropertyValue $PlanPath
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PlanHash)) {
+        $snapshot | Add-Member -NotePropertyName planHash -NotePropertyValue $PlanHash
     }
 
     $snapshot | ConvertTo-Json -Depth 8 | Set-Content -Path $filePath -Encoding UTF8

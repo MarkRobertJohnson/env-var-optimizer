@@ -27,6 +27,14 @@ Describe 'Cli Help' {
 
         $helpText.Contains('Command: apply') | Should Be $true
         $helpText.Contains('--plan <file>') | Should Be $true
+        $helpText.Contains('known-good state') | Should Be $true
+    }
+
+    It 'describes rollback as retaining newer entries in help output' {
+        $helpText = (Invoke-PathOptCli -CliArgs @('help', 'rollback') | Out-String)
+
+        $helpText.Contains('Command: rollback') | Should Be $true
+        $helpText.Contains('keeping newer PATH entries added since then') | Should Be $true
     }
 
     It 'shows shim help for shim --help' {
